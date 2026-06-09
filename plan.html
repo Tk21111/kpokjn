@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Indicator Notifier - Engineering Spec</title>
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 40px;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        h1, h2, h3 {
+            color: #58a6ff;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 8px;
+        }
+        h1 { font-size: 2em; }
+        h2 { margin-top: 40px; }
+        .highlight {
+            background-color: #1f2428;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #ff7b72;
+        }
+        .tech-badge {
+            background-color: #238636;
+            color: #ffffff;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-right: 5px;
+            display: inline-block;
+        }
+        pre {
+            background-color: #161b22;
+            padding: 16px;
+            border-radius: 6px;
+            overflow-x: auto;
+            border: 1px solid #30363d;
+            color: #8b949e;
+            font-family: monospace;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+        th, td {
+            border: 1px solid #30363d;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #161b22;
+            color: #c9d1d9;
+        }
+        .note {
+            background-color: #1f2428;
+            border-left: 4px solid #d2a8ff;
+            padding: 12px 16px;
+            margin: 20px 0;
+            border-radius: 0 4px 4px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Trading Indicator Notification System</h1>
+    <p><strong>System Blueprint:</strong> Approved Concrete Production Stack</p>
+    
+    <div>
+        <span class="tech-badge">Language: Go</span>
+        <span class="tech-badge">Data Provider: Alpaca API</span>
+        <span class="tech-badge">Local Cache: SQLite (WAL)</span>
+        <span class="tech-badge">Alerts: Discord Webhooks</span>
+    </div>
+
+    <h2>1. Verified Problem Space & Constraints</h2>
+    <ul>
+        <li><strong>Core Engine:</strong> High-frequency (hourly) evaluation of 50+ stocks across a historical depth of up to 1-2 years.</li>
+        <li><strong>Black-Box Indicators:</strong> Formulas are nondisclosure. The infrastructure must provide a clean data array input wrapper to allow hot-swapping secret indicator algorithms.</li>
+        <li><strong>Data Integrity:</strong> Uses Alpaca's adjusted historical close records to bypass corporate accounting distortions (such as stock splits and cash dividends).</li>
+        <li><strong>API Rate Mitigation:</strong> Avoids simultaneous API hammering by deploying a scheduled worker pool to distribute and sequence requests over time.</li>
+    </ul>
+
+    <h2>2. Selected Tech Stack Implementations</h2>
+    
+    <h3>Go (Concurrency & Scheduling Engine)</h3>
+    <p>Uses native channels to build a controlled worker pool. Instead of blasting 50 requests simultaneously, a fixed number of worker goroutines handle a shared job queue sequentially. This keeps execution stable and safely under the free-tier rate limits (200 requests/minute).</p>
+
+    <h3>Alpaca Market Data API (Ingestion Feed)</h3>
+    <p>Provides robust 1-hour interval bars. Serves pre-adjusted OHLCV datasets natively, eliminating the need to write backend data-smoothing layers for splits or dividends.</p>
+
+    <h3>SQLite (State Storage & Rolling Cache)</h3>
+    <p>Acts as the local persistent cache. Database connection must use <span class="highlight">PRAGMA journal_mode=WAL;</span> (Write-Ahead Logging). This allows background data-ingestion workers to write new hourly data safely without blocking the concurrent reading operations running the indicators.</p>
+
+    <h2>3. The Configurable Lookback Cascade</h2>
+    <p>To support varying indicators without forcing excessive disk I/O, data array sizes are determined by a cascading hierarchy:</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Priority</th>
+                <th>Configuration Level</th>
+                <th>Scope & Function</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>1 (Highest)</td>
+                <td><strong>Stock Override</strong></td>
+                <td>Specific parameters assigned to volatile assets.</td>
+            </tr>
+            <tr>
+                <td>2</td>
+                <td><strong>Indicator Requirement</strong></td>
+                <td>The native history required by the algorithm (e.g., 14 hours).</td>
+            </tr>
+            <tr>
+                <td>3 (Lowest)</td>
+                <td><strong>Global System Default</strong></td>
+                <td>Fallback window depth (defaulting up to 2 years).</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>4. Technical Sequence and Flow</h2>
+    <pre>
+ [ Top of the Hour (Go time.Ticker) ]
+                 │
+                 ▼
+     [ Enqueue 50 Ticker Jobs ]
+                 │
+                 ▼
+       [ Go Worker Pool (1-5) ]
+                 │
+                 ├─► (Fetch 1-Hr Adjusted Candle via Alpaca API)
+                 │
+                 ▼
+       [ SQLite Database (WAL) ] ◄─── (Write/Append Candle Data)
+                 │
+                 ├─► (Read Lookback Window Slice for Ticker)
+                 │
+                 ▼
+   [ Nondisclosure Indicator Wrap ] ── (Evaluates Array Inputs)
+                 │
+                 ▼
+       [ Threshold Evaluator ]
+                 │
+        (Hit Ceiling == True)
+                 │
+                 ▼
+     [ JSON Payload POST Request ] ───► [ Discord Server Webhook ]
+    </pre>
+
+    <div class="note">
+        <strong>Compilation Dependency Note:</strong> Because the engine pairs Go with SQLite via the standard driver, CGO must remain enabled. Compilation environments require a valid local GCC installation (such as MinGW on Windows or native build-essential packages on Ubuntu).
+    </div>
+
+</body>
+</html>
