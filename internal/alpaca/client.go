@@ -38,8 +38,8 @@ func NewClient(cfg *config.Config) *Client {
 	}
 }
 
-func (c *Client) GetHourlyBars(ticker string, limit int) ([]Bar, error) {
-	url := fmt.Sprintf("%s/stocks/%s/bars?timeframe=1Hour&limit=%d&adjustment=all",
+func (c *Client) GetBars(ticker string, limit int) ([]Bar, error) {
+	url := fmt.Sprintf("%s/stocks/%s/bars?timeframe=1Day&adjustment=all&limit=%d&start=2023-01-01T00:00:00Z",
 		c.cfg.AlpacaBaseURL, ticker, limit)
 
 	logx.Debugf("GET %s", url)

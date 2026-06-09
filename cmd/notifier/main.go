@@ -35,13 +35,13 @@ func main() {
 
 	client := alpaca.NewClient(cfg)
 
-	ticker := "TSLA"
-	limit := 200
+	ticker := "MSFT"
+	limit := 250
 
-	logx.Infof("Fetching %d hourly bars for %s ...", limit, ticker)
+	logx.Infof("Fetching %d daily bars for %s ...", limit, ticker)
 
 	startFetch := time.Now()
-	bars, err := client.GetHourlyBars(ticker, limit)
+	bars, err := client.GetBars(ticker, limit)
 	if err != nil {
 		logx.Fatalf("Failed to fetch bars for %s: %v", ticker, err)
 	}
