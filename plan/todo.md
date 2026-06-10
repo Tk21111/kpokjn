@@ -60,3 +60,6 @@
 - [ ] Include ticker name, indicator value, and signal type in alert
 - [ ] Handle edge cases (API failures, missing data, rate limits)
 - [ ] End-to-end test with full ticker list
+
+
+เป้าหมาย bot trading
