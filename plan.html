@@ -3,167 +3,1161 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Indicator Notifier - Engineering Spec</title>
+    <title>Trading Engine — Full Architecture</title>
     <style>
+        :root {
+            --bg:        #0d1117;
+            --bg2:       #161b22;
+            --bg3:       #1f2428;
+            --border:    #30363d;
+            --text:      #c9d1d9;
+            --muted:     #8b949e;
+            --blue:      #58a6ff;
+            --green:     #3fb950;
+            --red:       #ff7b72;
+            --purple:    #d2a8ff;
+            --yellow:    #e3b341;
+            --orange:    #f0883e;
+            --teal:      #39d353;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
         body {
-            background-color: #0d1117;
-            color: #c9d1d9;
+            background: var(--bg);
+            color: var(--text);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-            line-height: 1.6;
-            margin: 0;
-            padding: 40px;
-            max-width: 900px;
-            margin-left: auto;
-            margin-right: auto;
+            font-size: 14px;
+            line-height: 1.7;
+            padding: 48px 24px;
         }
-        h1, h2, h3 {
-            color: #58a6ff;
-            border-bottom: 1px solid #30363d;
-            padding-bottom: 8px;
+
+        .page { max-width: 980px; margin: 0 auto; }
+
+        /* ── Header ── */
+        .doc-header { border-bottom: 2px solid var(--border); padding-bottom: 24px; margin-bottom: 40px; }
+        .doc-header h1 { font-size: 1.9em; color: var(--blue); letter-spacing: -0.5px; }
+        .doc-header .subtitle { color: var(--muted); margin-top: 6px; font-size: 0.95em; }
+        .badges { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+        .badge {
+            padding: 3px 10px; border-radius: 12px; font-size: 0.78em; font-weight: 700;
+            letter-spacing: 0.3px;
         }
-        h1 { font-size: 2em; }
-        h2 { margin-top: 40px; }
-        .highlight {
-            background-color: #1f2428;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: monospace;
-            color: #ff7b72;
+        .badge-go     { background: #00add840; color: #79d7f7; border: 1px solid #00add860; }
+        .badge-py     { background: #3572a540; color: #7ec8ff; border: 1px solid #3572a560; }
+        .badge-docker { background: #2496ed30; color: #60b8ff; border: 1px solid #2496ed60; }
+        .badge-sqlite { background: #00385740; color: #5bc8ff; border: 1px solid #00385760; }
+        .badge-alpaca { background: #ffbe0030; color: #ffd454; border: 1px solid #ffbe0060; }
+
+        /* ── TOC ── */
+        .toc {
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 20px 24px; margin-bottom: 48px;
         }
-        .tech-badge {
-            background-color: #238636;
-            color: #ffffff;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 0.85em;
-            font-weight: bold;
-            margin-right: 5px;
-            display: inline-block;
+        .toc h3 { color: var(--muted); font-size: 0.75em; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; }
+        .toc ol { padding-left: 20px; }
+        .toc li { margin: 4px 0; }
+        .toc a { color: var(--blue); text-decoration: none; font-size: 0.9em; }
+        .toc a:hover { text-decoration: underline; }
+        .toc .sub { padding-left: 18px; list-style: disc; }
+
+        /* ── Sections ── */
+        h2 {
+            color: var(--blue); font-size: 1.25em;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px; margin: 48px 0 20px;
+        }
+        h3 { color: var(--purple); font-size: 1em; margin: 28px 0 10px; font-weight: 600; }
+        h4 { color: var(--yellow); font-size: 0.9em; margin: 20px 0 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        p  { margin-bottom: 12px; color: var(--text); }
+
+        /* ── Code ── */
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.88em;
+        }
+        .inline {
+            background: var(--bg3); color: var(--red);
+            padding: 1px 6px; border-radius: 4px;
         }
         pre {
-            background-color: #161b22;
-            padding: 16px;
-            border-radius: 6px;
-            overflow-x: auto;
-            border: 1px solid #30363d;
-            color: #8b949e;
-            font-family: monospace;
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 16px 18px;
+            overflow-x: auto; line-height: 1.45;
+            color: var(--muted); margin: 12px 0 20px;
+            font-size: 0.85em;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 16px;
+        pre .c  { color: #6e7681; }
+        pre .k  { color: var(--red); }
+        pre .s  { color: var(--green); }
+        pre .t  { color: var(--blue); }
+        pre .n  { color: var(--purple); }
+        pre .f  { color: var(--yellow); }
+        pre .ok { color: var(--teal); }
+
+        /* ── Diagram ── */
+        .diagram {
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 20px 22px;
+            font-family: monospace; font-size: 0.82em;
+            line-height: 1.5; overflow-x: auto; color: var(--text);
+            margin: 16px 0 24px; white-space: pre;
         }
-        th, td {
-            border: 1px solid #30363d;
-            padding: 12px;
-            text-align: left;
+        .diagram .stage  { color: var(--blue); }
+        .diagram .chan   { color: var(--yellow); }
+        .diagram .proc   { color: var(--green); }
+        .diagram .note   { color: var(--muted); }
+        .diagram .warn   { color: var(--red); }
+
+        /* ── Tables ── */
+        table { width: 100%; border-collapse: collapse; margin: 12px 0 24px; font-size: 0.88em; }
+        th, td { border: 1px solid var(--border); padding: 10px 14px; text-align: left; }
+        th { background: var(--bg2); color: var(--text); font-weight: 600; }
+        td code { font-size: 0.9em; }
+        tr:hover td { background: #ffffff05; }
+
+        /* ── Callouts ── */
+        .callout {
+            border-radius: 0 6px 6px 0; padding: 12px 16px;
+            margin: 16px 0; font-size: 0.9em;
         }
-        th {
-            background-color: #161b22;
-            color: #c9d1d9;
+        .callout strong { display: block; margin-bottom: 4px; font-size: 0.85em; letter-spacing: 0.4px; text-transform: uppercase; }
+        .note-info   { background: #1f3a5f40; border-left: 4px solid var(--blue); }
+        .note-warn   { background: #5a2d0040; border-left: 4px solid var(--orange); }
+        .note-danger { background: #3d000040; border-left: 4px solid var(--red); }
+        .note-ok     { background: #0d300040; border-left: 4px solid var(--green); }
+
+        /* ── Two-col layout ── */
+        .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+        .col-box {
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 16px;
         }
-        .note {
-            background-color: #1f2428;
-            border-left: 4px solid #d2a8ff;
-            padding: 12px 16px;
-            margin: 20px 0;
-            border-radius: 0 4px 4px 0;
+        .col-box h4 { margin-top: 0; }
+
+        /* ── Stage cards ── */
+        .stage-card {
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 20px 22px; margin: 16px 0;
+            position: relative;
         }
+        .stage-card::before {
+            content: attr(data-stage);
+            position: absolute; top: -1px; right: 16px;
+            background: var(--bg); color: var(--muted);
+            font-size: 0.72em; font-weight: 700; letter-spacing: 1px;
+            text-transform: uppercase; padding: 0 8px;
+        }
+        .stage-card h3 { margin-top: 0; }
+
+        ul { padding-left: 22px; margin-bottom: 12px; }
+        ul li { margin: 4px 0; }
+
+        .pill {
+            display: inline-block; padding: 2px 8px; border-radius: 10px;
+            font-size: 0.75em; font-weight: 700; vertical-align: middle;
+        }
+        .pill-go   { background: #00add820; color: #79d7f7; border: 1px solid #00add840; }
+        .pill-py   { background: #3572a520; color: #9ecfff; border: 1px solid #3572a540; }
+        .pill-sql  { background: #ff950020; color: #ffb347; border: 1px solid #ff950040; }
+
+        hr { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
     </style>
 </head>
 <body>
+<div class="page">
 
-    <h1>Trading Indicator Notification System</h1>
-    <p><strong>System Blueprint:</strong> Approved Concrete Production Stack</p>
-    
-    <div>
-        <span class="tech-badge">Language: Go</span>
-        <span class="tech-badge">Data Provider: Alpaca API</span>
-        <span class="tech-badge">Local Cache: SQLite (WAL)</span>
-        <span class="tech-badge">Alerts: Discord Webhooks</span>
+<!-- ══════════════════════════════════════════
+     HEADER
+══════════════════════════════════════════ -->
+<div class="doc-header">
+    <h1>Trading Execution Engine — Full Architecture</h1>
+    <div class="subtitle">Containerized judge system · decoupled pipeline · Go orchestrator + Python math layer · dual-use base (trading bot / judge system)</div>
+    <div class="badges">
+        <span class="badge badge-go">Go — Orchestration</span>
+        <span class="badge badge-py">Python — Math Layer</span>
+        <span class="badge badge-docker">Docker</span>
+        <span class="badge badge-sqlite">SQLite — Rolling Cache</span>
+        <span class="badge badge-alpaca">Alpaca Markets API</span>
     </div>
+</div>
 
-    <h2>1. Verified Problem Space & Constraints</h2>
+<!-- ══════════════════════════════════════════
+     TOC
+══════════════════════════════════════════ -->
+<div class="toc">
+    <h3>Contents</h3>
+    <ol>
+        <li><a href="#overview">System Overview</a></li>
+        <li><a href="#pipeline">Pipeline Architecture</a>
+            <ul class="sub">
+                <li><a href="#s1">Stage 1 — Filler API</a></li>
+                <li><a href="#s2">Stage 2 — Sync &amp; Decision</a></li>
+                <li><a href="#s25">Stage 2.5 — Formula Manager</a></li>
+                <li><a href="#s3">Stage 3 — Process Data Manager</a></li>
+                <li><a href="#s4">Stage 4 — Result Sink</a></li>
+            </ul>
+        </li>
+        <li><a href="#filler">Filler API — Priority Scheduler</a>
+            <ul class="sub">
+                <li><a href="#filler-queue">Priority Queue Model</a></li>
+                <li><a href="#filler-modes">Fetch Modes (Hourly vs 15-min)</a></li>
+                <li><a href="#filler-timeframe">15-min vs 5-min Decision</a></li>
+                <li><a href="#filler-budget">Alpaca Rate Budget</a></li>
+            </ul>
+        </li>
+        <li><a href="#formula">Formula Manager</a>
+            <ul class="sub">
+                <li><a href="#formula-cache">Formula Cache &amp; Hot-Reload</a></li>
+                <li><a href="#formula-group">Grouping &amp; Batch Optimization</a></li>
+                <li><a href="#formula-params">Params Injection</a></li>
+                <li><a href="#formula-failopen">Fail-Open Policy</a></li>
+            </ul>
+        </li>
+        <li><a href="#ram">RAM Layer — Ring Buffer &amp; liveCandle</a>
+            <ul class="sub">
+                <li><a href="#ram-ring">Ring Buffer Design</a></li>
+                <li><a href="#ram-live">liveCandle Map</a></li>
+                <li><a href="#ram-boundary">Hour Boundary Promotion</a></li>
+            </ul>
+        </li>
+        <li><a href="#python">Python Worker Subsystem</a>
+            <ul class="sub">
+                <li><a href="#lifecycle">Subprocess Lifecycle</a></li>
+                <li><a href="#contract">Formula Contract</a></li>
+                <li><a href="#state">Incremental State Reuse</a></li>
+                <li><a href="#isolation">Formula Isolation &amp; Batch Execution</a></li>
+            </ul>
+        </li>
+        <li><a href="#data">Data Layer — SQLite Persistence</a>
+            <ul class="sub">
+                <li><a href="#schema">Schema</a></li>
+                <li><a href="#writer">Single Writer Goroutine</a></li>
+                <li><a href="#bootstrap">Bootstrap vs Steady-State</a></li>
+                <li><a href="#rolling">Rolling Window Pruning</a></li>
+            </ul>
+        </li>
+        <li><a href="#pdm">Process Data Manager</a></li>
+        <li><a href="#errmanager">Error Manager</a></li>
+        <li><a href="#dedup">Signal Deduplication</a></li>
+        <li><a href="#resources">Resource Limits</a></li>
+        <li><a href="#secrets">Configuration &amp; Secrets</a></li>
+        <li><a href="#startup">Startup Sequence</a></li>
+        <li><a href="#docker">Docker Layout</a></li>
+        <li><a href="#dualuse">Dual-Use Base — Trading Bot &amp; Judge System</a></li>
+        <li><a href="#concerns">Design Concerns &amp; Edge Cases</a>
+            <ul class="sub">
+                <li><a href="#c-ringlock">Ring Buffer Concurrent Access</a></li>
+                <li><a href="#c-boundary">Hour Boundary Race</a></li>
+                <li><a href="#c-discord">Discord Rate Limiting</a></li>
+                <li><a href="#c-state">prev_state Loss on Restart</a></li>
+                <li><a href="#c-dst">DST &amp; Tick Alignment</a></li>
+                <li><a href="#c-gaps">Gap Handling</a></li>
+                <li><a href="#c-leak">Python State Store Leak</a></li>
+            </ul>
+        </li>
+        <li><a href="#interfaces">Go Type Reference</a></li>
+    </ol>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+  1. OVERVIEW
+══════════════════════════════════════════ -->
+<h2 id="overview">1. System Overview</h2>
+
+<p>The engine evaluates 50+ stocks every market hour against AI-generated Python indicator formulas and fires a Discord webhook when a stock crosses its threshold. All computation runs inside a single Docker container.</p>
+
+<p>The architectural goals are:</p>
+<ul>
+    <li><strong>Process isolation</strong> — untrusted Python formulas cannot crash the Go orchestrator</li>
+    <li><strong>Decoupled stages</strong> — each pipeline stage communicates only via typed Go channels behind defined interfaces; any stage can be replaced independently</li>
+    <li><strong>Formula Manager</strong> — dedicated stage between sync and execution; owns formula loading, caching, hot-reload, grouping by hash, and params injection; no other stage touches formula files</li>
+    <li><strong>Centralized Error Manager</strong> — single goroutine receives all error events from all stages; owns burst suppression, routing, and Discord error delivery; stages call Report() and forget</li>
+    <li><strong>Resource governance</strong> — a central Process Data Manager bounds concurrent Python evaluations and tracks resource usage</li>
+    <li><strong>RAM as serving layer, SQLite as persistence</strong> — 2 years of OHLCV in SQLite; ring buffers in RAM serve all evaluations; SQLite read only on startup warm-up</li>
+    <li><strong>Python runtime reuse</strong> — subprocesses stay alive across evaluations; pandas/numpy loaded once; per-ticker state preserved for incremental computation; batch execution within same formula group</li>
+    <li><strong>Dual-use base</strong> — pipeline interfaces are generic; swapping implementations targets both trading signals and DOMjudge-style code judge systems</li>
+</ul>
+
+<div class="callout note-info">
+    <strong>Scope note</strong>
+    This is an hourly-resolution signal system, not a sub-second HFT engine. Latency target: all 50 stocks evaluated and Discord fired within the same minute the new candle closes.
+</div>
+
+<div class="diagram"><span class="note">┌──────────────────────────────────────────────────────────────────────┐
+│  DOCKER CONTAINER                                                    │
+│                                                                      │
+│  <span class="stage">[ S1 Filler ]</span> ──► <span class="stage">[ S2 Sync ]</span> ──► <span class="stage">[ S2.5 Formula Mgr ]</span> ──► <span class="stage">[ S3 PDM ]</span> ──► <span class="stage">[ S4 Sink ]</span>  │
+│       │                │                    │               │            │  │
+│       │                │                    │               │            │  │
+│       ▼                └────────────────────┘               │            │  │
+│  <span class="proc">[ SQLite Writer ]</span>    (reads ring buffer)                  │            │  │
+│       │                                                     │            │  │
+│       ▼                                                     │            │  │
+│  <span class="proc">[ SQLite DB ]</span>       <span class="proc">[ RAM Ring Buffers ]</span>    <span class="proc">[ Python Pool ]</span>            │  │
+│                                                                          │  │
+│  <span class="warn">[ Error Manager ]</span> ◄────────────────────────────── all stages ──────────┘  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+         ▲                                              │              │
+         │                                              ▼              ▼
+  <span class="note">[ Alpaca API ]</span>                              <span class="note">[ Discord Signals ]</span>  <span class="note">[ Discord Errors ]</span></span></div>
+
+
+<!-- ══════════════════════════════════════════
+  2. PIPELINE
+══════════════════════════════════════════ -->
+<h2 id="pipeline">2. Pipeline Architecture</h2>
+
+<p>Each stage is a goroutine (or small fixed pool) that blocks on its input channel and writes to its output channel. No stage holds a reference to another stage's internals. All errors are forwarded to the centralized Error Manager — stages never handle Discord error delivery themselves.</p>
+
+<div class="diagram"><span class="stage">[ Stage 1: Filler API ]</span>
+       │
+       │  <span class="chan">chan WriteRequest</span>  ──────────────────────────────► <span class="proc">[ SQLite Writer ]</span>
+       │  <span class="chan">chan TickerUpdate</span>
+       ▼
+<span class="stage">[ Stage 2: Sync &amp; Decision ]</span>  ◄── reads from ring buffer (RAM)
+       │
+       │  <span class="chan">chan EvalRequest</span>  { Ticker, Data }  — no formula yet
+       ▼
+<span class="stage">[ Stage 2.5: Formula Manager ]</span>
+       │  resolves formula, attaches code+hash+params, groups by hash
+       │
+       │  <span class="chan">chan BatchEvalRequest</span>  { FormulaHash, Code, []BatchItem }
+       ▼
+<span class="stage">[ Stage 3: Process Data Manager ]</span>
+       │
+       │  dispatches to worker pool (semaphore-bounded)
+       ├──► <span class="proc">[ PyWorker 0 ]</span>  (persistent Python subprocess)
+       ├──► <span class="proc">[ PyWorker 1 ]</span>
+       └──► <span class="proc">[ PyWorker N ]</span>
+       │
+       │  <span class="chan">chan EvalResult</span>
+       ▼
+<span class="stage">[ Stage 4: Result Sink ]</span>
+       │
+       ├──► signal: dedup check → Discord signals webhook
+       └──► error: ──────────────────────────────────────────► <span class="warn">[ Error Manager ]</span>
+                                                                       ▲
+                                  all other stages ────────────────────┘
+                                  Report(ErrorEvent) — non-blocking</div>
+
+<!-- S1 -->
+<div class="stage-card" data-stage="Stage 1">
+    <h3 id="s1">Stage 1 — Filler API <span class="pill pill-go">Go</span></h3>
+    <p>Renamed from "API Puller" — the Filler is a continuous <strong>priority-queue scheduler</strong>, not a fixed hourly batch. Each ticker has a dynamic priority score and a hard cooldown floor (max 1 hour). High-priority tickers get pulled on 15-min live candles; normal-priority tickers get pulled once per hour. Full detail in <a href="#filler">Section 3 — Filler API</a>.</p>
+    <h4>Responsibilities</h4>
     <ul>
-        <li><strong>Core Engine:</strong> High-frequency (hourly) evaluation of 50+ stocks across a historical depth of up to 1-2 years.</li>
-        <li><strong>Black-Box Indicators:</strong> Formulas are nondisclosure. The infrastructure must provide a clean data array input wrapper to allow hot-swapping secret indicator algorithms.</li>
-        <li><strong>Data Integrity:</strong> Uses Alpaca's adjusted historical close records to bypass corporate accounting distortions (such as stock splits and cash dividends).</li>
-        <li><strong>API Rate Mitigation:</strong> Avoids simultaneous API hammering by deploying a scheduled worker pool to distribute and sequence requests over time.</li>
+        <li>Maintain a <strong>min-heap</strong> of tickers ordered by <span class="inline">NextEligibleAt</span> + <span class="inline">PriorityScore</span></li>
+        <li>Run a scheduler goroutine that pops eligible tickers, dispatches to a bounded Alpaca fetch pool, recomputes priority from the latest <span class="inline">EvalResult.NewState</span>, and pushes back</li>
+        <li><strong>Hourly background path</strong>: fetch 1-hour bar → append to RAM ring buffer + SQLite Writer</li>
+        <li><strong>Hot path</strong> (high-priority tickers): fetch latest 15-min bar → update <span class="inline">liveCandle[ticker]</span> in RAM only — no SQLite write</li>
+        <li>On Alpaca failure: emit <span class="inline">TickerUpdate</span> with <span class="inline">Err</span> set; Stage 2 skips this ticker for the current evaluation</li>
     </ul>
+    <h4>Tick Alignment &amp; DST</h4>
+    <p>Hourly background ticks fire at HH:02 Eastern time — <em>not UTC</em>. US markets run on Eastern time; using UTC truncation silently misaligns by 1 hour during DST transitions. Compute next tick in Eastern time explicitly. If Alpaca returns empty data (weekend, holiday), the puller emits nothing for that ticker. No external calendar needed.</p>
+</div>
 
-    <h2>2. Selected Tech Stack Implementations</h2>
-    
-    <h3>Go (Concurrency & Scheduling Engine)</h3>
-    <p>Uses native channels to build a controlled worker pool. Instead of blasting 50 requests simultaneously, a fixed number of worker goroutines handle a shared job queue sequentially. This keeps execution stable and safely under the free-tier rate limits (200 requests/minute).</p>
-
-    <h3>Alpaca Market Data API (Ingestion Feed)</h3>
-    <p>Provides robust 1-hour interval bars. Serves pre-adjusted OHLCV datasets natively, eliminating the need to write backend data-smoothing layers for splits or dividends.</p>
-
-    <h3>SQLite (State Storage & Rolling Cache)</h3>
-    <p>Acts as the local persistent cache. Database connection must use <span class="highlight">PRAGMA journal_mode=WAL;</span> (Write-Ahead Logging). This allows background data-ingestion workers to write new hourly data safely without blocking the concurrent reading operations running the indicators.</p>
-
-    <h2>3. The Configurable Lookback Cascade</h2>
-    <p>To support varying indicators without forcing excessive disk I/O, data array sizes are determined by a cascading hierarchy:</p>
-    <table>
-        <thead>
-            <tr>
-                <th>Priority</th>
-                <th>Configuration Level</th>
-                <th>Scope & Function</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>1 (Highest)</td>
-                <td><strong>Stock Override</strong></td>
-                <td>Specific parameters assigned to volatile assets.</td>
-            </tr>
-            <tr>
-                <td>2</td>
-                <td><strong>Indicator Requirement</strong></td>
-                <td>The native history required by the algorithm (e.g., 14 hours).</td>
-            </tr>
-            <tr>
-                <td>3 (Lowest)</td>
-                <td><strong>Global System Default</strong></td>
-                <td>Fallback window depth (defaulting up to 2 years).</td>
-            </tr>
-        </tbody>
-    </table>
-
-    <h2>4. Technical Sequence and Flow</h2>
-    <pre>
- [ Top of the Hour (Go time.Ticker) ]
-                 │
-                 ▼
-     [ Enqueue 50 Ticker Jobs ]
-                 │
-                 ▼
-       [ Go Worker Pool (1-5) ]
-                 │
-                 ├─► (Fetch 1-Hr Adjusted Candle via Alpaca API)
-                 │
-                 ▼
-       [ SQLite Database (WAL) ] ◄─── (Write/Append Candle Data)
-                 │
-                 ├─► (Read Lookback Window Slice for Ticker)
-                 │
-                 ▼
-   [ Nondisclosure Indicator Wrap ] ── (Evaluates Array Inputs)
-                 │
-                 ▼
-       [ Threshold Evaluator ]
-                 │
-        (Hit Ceiling == True)
-                 │
-                 ▼
-     [ JSON Payload POST Request ] ───► [ Discord Server Webhook ]
-    </pre>
-
-    <div class="note">
-        <strong>Compilation Dependency Note:</strong> Because the engine pairs Go with SQLite via the standard driver, CGO must remain enabled. Compilation environments require a valid local GCC installation (such as MinGW on Windows or native build-essential packages on Ubuntu).
+<!-- S2 -->
+<div class="stage-card" data-stage="Stage 2">
+    <h3 id="s2">Stage 2 — Sync &amp; Decision (Time Gate) <span class="pill pill-go">Go</span></h3>
+    <p>Collects all <span class="inline">TickerUpdate</span>s for the current evaluation cycle. Once the full set has landed (or a timeout expires), it performs a staleness check, reads each data array from the <strong>RAM ring buffer</strong>, and emits <span class="inline">EvalRequest</span>s to the PDM. SQLite is not touched here.</p>
+    <h4>Time Gate</h4>
+    <p>Stage 2 holds a counter per cycle. When the count reaches <span class="inline">len(tickers)</span>, or a <strong>gate timeout</strong> fires (e.g. 3 minutes), it releases — whichever comes first. Tickers that reported errors are excluded from this cycle's evaluation batch.</p>
+    <div class="callout note-info">
+        <strong>Why batch-gate instead of per-ticker fire</strong>
+        Batch-gating gives a clean synchronization point, makes logging coherent ("tick 14:00 — 49/50 stocks evaluated"), and avoids a race where Stage 3 is still processing last cycle's stocks when new ones arrive.
     </div>
+    <h4>Staleness Check</h4>
+    <p>Before slicing the ring buffer for a ticker, verify <span class="inline">ringBuffer[ticker].Head().Timestamp</span> equals the expected tick timestamp. If it doesn't (Filler write failed silently or Alpaca returned stale data), skip this ticker and log to the error channel. Evaluating stale data produces a silent wrong result — worse than no result.</p>
+    <h4>Array Build</h4>
+    <p>Slices the last <em>N</em> candles from the RAM ring buffer, then appends <span class="inline">liveCandle[ticker]</span> as the current tip (if a 15-min bar is available). N is resolved by the lookback cascade:</p>
+    <table>
+        <tr><th>Priority</th><th>Source</th><th>Example</th></tr>
+        <tr><td>1 (highest)</td><td>Per-ticker override config</td><td>TSLA → 500 hours</td></tr>
+        <tr><td>2</td><td>Formula's declared warm-up requirement</td><td>EMA-200 → 200 hours</td></tr>
+        <tr><td>3 (lowest)</td><td>Global default</td><td>720 hours (~1 month)</td></tr>
+    </table>
+</div>
 
+<!-- S25 -->
+<div class="stage-card" data-stage="Stage 2.5">
+    <h3 id="s25">Stage 2.5 — Formula Manager <span class="pill pill-go">Go</span></h3>
+    <p>Sits between Sync and PDM. Receives bare <span class="inline">EvalRequest{Ticker, Data}</span>, resolves the formula for each ticker, attaches code + hash + params, then groups requests by formula hash into batches. No other stage reads formula files.</p>
+    <ul>
+        <li>Maintains an in-memory <span class="inline">formulaCache</span> — file reads happen only on cache miss or file change</li>
+        <li>File-watcher goroutine invalidates cache entries on <span class="inline">formulas/*.py</span> modification; new hash propagates on next evaluation, triggering <span class="inline">prev_state</span> reset automatically</li>
+        <li>Injects per-ticker <span class="inline">params</span> from config so tickers can share one formula file with different thresholds/periods</li>
+        <li>Groups tickers sharing the same <span class="inline">formula_hash</span> into a single <span class="inline">BatchEvalRequest</span> — Python <span class="inline">exec()</span>s the formula once for the whole group</li>
+        <li><strong>Fail-open:</strong> missing formula file → emit <span class="inline">ErrorEvent</span> to Error Manager, skip ticker this cycle — never blocks the remaining batch</li>
+    </ul>
+    <p>Full detail in <a href="#formula">Section 4 — Formula Manager</a>.</p>
+</div>
+
+<!-- S3 -->
+<div class="stage-card" data-stage="Stage 3">
+    <h3 id="s3">Stage 3 — Process Data Manager (PDM) <span class="pill pill-go">Go</span> <span class="pill pill-py">Python</span></h3>
+    <p>Receives <span class="inline">BatchEvalRequest</span>s from Formula Manager and dispatches them to a fixed pool of Python workers bounded by a semaphore. Each batch is processed by one worker — the formula is exec()ed once, all items in the batch evaluated sequentially in the same namespace.</p>
+    <p>Full detail in <a href="#pdm">Section 8 — Process Data Manager</a>.</p>
+</div>
+
+<!-- S4 -->
+<div class="stage-card" data-stage="Stage 4">
+    <h3 id="s4">Stage 4 — Post Processor <span class="pill pill-go">Go</span></h3>
+    <p>Receives <span class="inline">EvalResult</span>s from the PDM's output channel. For results with <span class="inline">Signal == 1</span>, applies deduplication logic before firing Discord.</p>
+    <h4>Responsibilities</h4>
+    <ul>
+        <li>Read <span class="inline">last_signal</span> from SQLite for the ticker; skip if within cooldown window</li>
+        <li>POST to Discord webhook with structured embed (ticker, formula hash, timestamp, signal value)</li>
+        <li>On Discord success: update <span class="inline">last_signal</span> for that ticker via SQLite Writer</li>
+        <li>On Discord failure: retry with exponential backoff (max 3 retries); if still failing, emit to <strong>error channel</strong> (separate webhook) — never drop silently</li>
+        <li>Error results from PDM (Python timeout, crash): route to error channel, not signal channel</li>
+    </ul>
+    <h4>Two-Webhook Pattern</h4>
+    <p>Signal webhook and error webhook are separate Discord channels. An error storm (bad formula update affecting 40 stocks) floods <span class="inline">#engine-errors</span>, leaving <span class="inline">#signals</span> clean.</p>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+  3. FILLER API
+══════════════════════════════════════════ -->
+<h2 id="filler">3. Filler API — Priority Scheduler</h2>
+
+<p>The Filler replaces a naive fixed hourly batch with a continuous priority-queue scheduler. Every ticker has a <span class="inline">NextEligibleAt</span> (hard cooldown floor, max 1 hour) and a <span class="inline">PriorityScore</span> (soft ordering among eligible tickers). The scheduler goroutine pops, fetches, recomputes, and re-enqueues in a tight loop.</p>
+
+<h3 id="filler-queue">Priority Queue Model</h3>
+
+<pre><span class="k">type</span> <span class="t">TickerJob</span> <span class="k">struct</span> {
+    Ticker          <span class="t">string</span>
+    NextEligibleAt  <span class="t">time.Time</span>   <span class="c">// hard cooldown — never pull before this</span>
+    PriorityScore   <span class="t">float64</span>     <span class="c">// lower = pull sooner among eligible set</span>
+    LiveTimeframe   <span class="t">string</span>      <span class="c">// "1Hour" | "15Min" — set per priority tier</span>
+}
+<span class="c">// min-heap: ordered by NextEligibleAt first, PriorityScore as tiebreaker</span></pre>
+
+<p>Scheduler loop:</p>
+<pre><span class="k">for</span> {
+    job := heap.<span class="f">Peek</span>()
+    <span class="k">if</span> job.NextEligibleAt.<span class="f">After</span>(<span class="f">now</span>()) {
+        <span class="f">sleepUntil</span>(ctx, job.NextEligibleAt)
+        <span class="k">continue</span>
+    }
+    heap.<span class="f">Pop</span>()
+    <span class="k">go</span> <span class="f">fetch</span>(job, alpacaPool, ringBuffers, writerCh, tickerUpdateCh)
+    job.NextEligibleAt = <span class="f">now</span>().<span class="f">Add</span>(<span class="f">computeCooldown</span>(job))
+    job.PriorityScore  = <span class="f">computePriority</span>(job, ringBuffers, lastResults)
+    heap.<span class="f">Push</span>(job)
+}</pre>
+
+<p><span class="inline">computePriority()</span> reads directly from the RAM ring buffer and the last <span class="inline">EvalResult.NewState</span> — zero SQLite I/O:</p>
+<table>
+    <tr><th>Priority Input</th><th>Source</th><th>Example</th></tr>
+    <tr><td>Threshold proximity</td><td><code>EvalResult.NewState</code> (e.g. last RSI value)</td><td>RSI=32 vs threshold 30 → high priority</td></tr>
+    <tr><td>Recent volatility</td><td>Ring buffer last 5 closes — stddev</td><td>High stddev → shorter cooldown</td></tr>
+    <tr><td>Manual tier</td><td>Config override</td><td><code>TSLA.priority = high</code></td></tr>
+    <tr><td>Time since last signal</td><td><code>last_signal</code> table (cached in memory)</td><td>Recent signalers monitored more closely</td></tr>
+</table>
+
+<p>Priority feeds back into cooldown assignment:</p>
+<table>
+    <tr><th>Condition</th><th>Assigned Cooldown</th><th>Fetch Timeframe</th></tr>
+    <tr><td>Near threshold (delta &lt; 5%)</td><td>15 min</td><td>15Min live candle</td></tr>
+    <tr><td>High recent volatility</td><td>20 min</td><td>15Min live candle</td></tr>
+    <tr><td>Normal</td><td>60 min (max)</td><td>1Hour bar</td></tr>
+    <tr><td>Manual override (config)</td><td>as configured</td><td>as configured</td></tr>
+</table>
+
+<h3 id="filler-modes">Two Fetch Modes</h3>
+
+<p>Same Alpaca endpoint, different <span class="inline">timeframe</span> param. The distinction determines write destination:</p>
+
+<div class="diagram"><span class="stage">[ Hourly background path ]</span>  (all tickers, once per hour max)
+  Alpaca timeframe=1Hour
+       │
+       ├──► ring buffer[ticker].Append(candle)    <span class="note">// RAM, immediate</span>
+       └──► SQLite Writer channel                  <span class="note">// async persist</span>
+       Then emits TickerUpdate → Stage 2
+
+<span class="stage">[ Hot path ]</span>  (high-priority tickers only, up to every 15 min)
+  Alpaca timeframe=15Min, limit=1
+       │
+       └──► liveCandle[ticker] = candle            <span class="note">// RAM only, no SQLite write</span>
+       Then emits TickerUpdate → Stage 2</div>
+
+<p>Stage 2 builds the eval array as <span class="inline">ring_buffer.Slice(N−1) + liveCandle[ticker]</span>. Historical hourly data is the warm-up; the 15-min tip is the real-time signal surface. Historical bars are treated as constant — the system never re-fetches or reprocesses them.</p>
+
+<h3 id="filler-timeframe">15-min vs 5-min Decision</h3>
+
+<div class="callout note-ok">
+    <strong>Decision: 15-min, configurable per tier</strong>
+    Use 15-min as the default live timeframe. 5-min adds noise without meaningful benefit — indicators are computed on hourly history, so a 5-min tip represents 1/12th of the intended data resolution. Sub-15-min price spikes that reverse within the same 15-min window generate false positives. 5-min bars also carry thinner liquidity on low-volume stocks. The sweet spot is 15-min: catches threshold breaches up to 45 minutes earlier than waiting for the hourly close, with acceptable noise. Per-ticker override allows 5-min for high-conviction tickers if needed.
+</div>
+
+<div class="callout note-warn">
+    <strong>Volume caveat for sub-hourly bars</strong>
+    A 15-min bar's volume is not comparable to the hourly bars preceding it in the series. Volume-based indicators (OBV, VWAP, MFI) will see the last element as an outlier by construction. Document this in the formula contract: <code>data[-1]</code> may be a sub-hourly bar; price fields are valid for threshold detection, volume is not normalized.
+</div>
+
+<h3 id="filler-budget">Alpaca Rate Budget — Three Consumers</h3>
+
+<p>The Filler now has three distinct consumers of Alpaca API quota that must not compete:</p>
+<table>
+    <tr><th>Consumer</th><th>Pattern</th><th>Budget Priority</th></tr>
+    <tr><td>Backfill worker</td><td>Bulk paginated historical, one-time per ticker</td><td>Lowest — runs in background</td></tr>
+    <tr><td>Hourly background path</td><td>50 tickers × 1 request/hour</td><td>High — reserved capacity</td></tr>
+    <tr><td>Hot path (15-min)</td><td>Up to N priority tickers × 4 requests/hour</td><td>High — reserved capacity</td></tr>
+</table>
+
+<p>Use a two-lane rate limiter. Live fetches (hourly + hot path) share a reserved lane with guaranteed capacity. The backfill worker gets a separate, lower-ceiling limiter and consumes only what the live lane leaves unused:</p>
+<pre><span class="k">type</span> <span class="t">FillerRateLimiter</span> <span class="k">struct</span> {
+    live     *rate.<span class="t">Limiter</span>   <span class="c">// hourly + hot path; reserved capacity</span>
+    backfill *rate.<span class="t">Limiter</span>   <span class="c">// lower ceiling, runs opportunistically</span>
+}</pre>
+
+
+<!-- ══════════════════════════════════════════
+  4. RAM LAYER
+══════════════════════════════════════════ -->
+<h2 id="ram">4. RAM Layer — Ring Buffer &amp; liveCandle</h2>
+
+<p>SQLite is the persistence layer. RAM is the serving layer. Stage 2 never reads from SQLite during evaluation — all OHLCV data served to Python comes from in-memory structures. SQLite is only read on startup to warm those structures.</p>
+
+<p>Memory footprint is negligible. 50 tickers × 720-candle ring buffer × 6 float64 fields × 8 bytes ≈ <strong>1.7 MB</strong>. Even a full 2-year buffer per ticker is only ~42 MB total.</p>
+
+<h3 id="ram-ring">Ring Buffer Design</h3>
+
+<pre><span class="k">type</span> <span class="t">RingBuffer</span> <span class="k">struct</span> {
+    data     []<span class="t">OHLCV</span>
+    head     <span class="t">int</span>        <span class="c">// next write position</span>
+    size     <span class="t">int</span>        <span class="c">// current fill level</span>
+    capacity <span class="t">int</span>        <span class="c">// max candles held (= max lookback for this ticker)</span>
+    mu       sync.<span class="t">RWMutex</span>
+}
+
+<span class="k">func</span> (r *<span class="t">RingBuffer</span>) <span class="f">Append</span>(c <span class="t">OHLCV</span>) {
+    r.mu.<span class="f">Lock</span>(); <span class="k">defer</span> r.mu.<span class="f">Unlock</span>()
+    r.data[r.head] = c
+    r.head = (r.head + <span class="n">1</span>) % r.capacity
+    <span class="k">if</span> r.size &lt; r.capacity { r.size++ }
+}
+
+<span class="k">func</span> (r *<span class="t">RingBuffer</span>) <span class="f">Slice</span>(n <span class="t">int</span>) []<span class="t">OHLCV</span> {
+    r.mu.<span class="f">RLock</span>(); <span class="k">defer</span> r.mu.<span class="f">RUnlock</span>()
+    <span class="c">// returns a copy of the last n candles in chronological order</span>
+    <span class="c">// caller owns the slice — no data race on downstream use</span>
+}</pre>
+
+<p>The mutex lives inside <span class="inline">RingBuffer</span>. <span class="inline">Slice()</span> returns a <strong>copy</strong>, not a pointer into the internal array — the EvalRequest data slice is safe to use after the lock is released.</p>
+
+<div class="callout note-warn">
+    <strong>Ring buffer capacity must equal the ticker's max lookback</strong>
+    Size each ring buffer to the largest possible lookback for that ticker (from the override cascade). If a formula later requests more history than the buffer holds, it silently receives fewer candles than expected. Crash loudly on startup if <code>capacity &lt; configured_lookback</code>.
+</div>
+
+<h3 id="ram-live">liveCandle Map</h3>
+
+<p><span class="inline">liveCandle</span> holds the latest 15-min bar per ticker. It is ephemeral — populated by the hot-path fetch, cleared on hour boundary, never written to SQLite.</p>
+
+<pre><span class="k">type</span> <span class="t">FillerState</span> <span class="k">struct</span> {
+    RingBuffers <span class="k">map</span>[<span class="t">string</span>]*<span class="t">RingBuffer</span>  <span class="c">// hourly history, persisted to SQLite</span>
+    LiveCandle  <span class="k">map</span>[<span class="t">string</span>]<span class="t">OHLCV</span>          <span class="c">// latest 15-min bar, ephemeral</span>
+    mu          sync.<span class="t">RWMutex</span>              <span class="c">// guards both maps</span>
+}</pre>
+
+<p>Stage 2 reads both under a read lock. The Filler hot path writes <span class="inline">LiveCandle</span> under a write lock. The hourly background path writes <span class="inline">RingBuffers</span> under a write lock.</p>
+
+<h3 id="ram-boundary">Hour Boundary Promotion</h3>
+
+<p>When the hourly bar closes, two things must happen atomically: append the completed candle to the ring buffer AND clear the liveCandle. If they're not atomic, Stage 2 can briefly see a ring buffer with the new hourly tip AND a stale liveCandle — double-counting the same period.</p>
+
+<pre><span class="k">func</span> (fs *<span class="t">FillerState</span>) <span class="f">PromoteHourly</span>(ticker <span class="t">string</span>, candle <span class="t">OHLCV</span>) {
+    fs.mu.<span class="f">Lock</span>()
+    <span class="k">defer</span> fs.mu.<span class="f">Unlock</span>()
+    fs.RingBuffers[ticker].<span class="f">AppendNoLock</span>(candle)  <span class="c">// inner lock already held</span>
+    <span class="k">delete</span>(fs.LiveCandle, ticker)                  <span class="c">// clear atomically</span>
+    <span class="c">// SQLite write dispatched separately via writerCh (non-blocking)</span>
+}</pre>
+
+<p>On container restart: ring buffers are rebuilt from SQLite on startup. <span class="inline">LiveCandle</span> is always empty on boot — the hot-path fetch repopulates it within the first 15-minute window. <span class="inline">prev_state</span> for Python workers is also lost on restart; formulas fall back to full historical recomputation on the first tick.</p>
+
+
+<!-- ══════════════════════════════════════════
+  5. PYTHON WORKER SUBSYSTEM
+══════════════════════════════════════════ -->
+<h2 id="python">5. Python Worker Subsystem</h2>
+
+<h3 id="lifecycle">Subprocess Lifecycle <span class="pill pill-py">Python</span></h3>
+<p>Each <strong>PyWorker</strong> is a Go struct owning one goroutine and one long-running Python subprocess. The subprocess starts when the worker is created at engine boot and runs for the lifetime of the container. It is only restarted if it exits unexpectedly.</p>
+<div class="diagram"><span class="stage">[ Go PyWorker goroutine ]</span>
+        │
+        │  os/exec — one subprocess, alive for container lifetime
+        ▼
+<span class="proc">[ Python subprocess ]</span>
+  pandas, numpy, pandas_ta loaded once at startup
+  stdin/stdout loop — reads one JSON job, writes one JSON response, repeats</div>
+
+<p>The Python main loop is minimal:</p>
+<pre><span class="k">import</span> sys, json, traceback
+<span class="k">import</span> pandas <span class="k">as</span> pd
+<span class="k">import</span> numpy <span class="k">as</span> np
+<span class="k">import</span> pandas_ta <span class="k">as</span> ta
+
+<span class="f">_state_store</span> = {}  <span class="c"># ticker → prev_state dict, persists across calls</span>
+
+<span class="k">for</span> line <span class="k">in</span> sys.stdin:
+    job = json.loads(line)
+    <span class="k">try</span>:
+        result = <span class="f">_run_job</span>(job)
+        sys.stdout.write(json.dumps(result) + <span class="s">"\n"</span>)
+    <span class="k">except</span> <span class="t">Exception</span> <span class="k">as</span> e:
+        sys.stdout.write(json.dumps({<span class="s">"error"</span>: traceback.format_exc()}) + <span class="s">"\n"</span>)
+    sys.stdout.flush()</pre>
+
+<div class="callout note-ok">
+    <strong>Why persistent subprocess wins here</strong>
+    Python cold-start with pandas + numpy + pandas_ta takes 400–800 ms. For 50 stocks per hour, spawning a fresh process per evaluation would consume 20–40 seconds of the hour just on interpreter startup. A persistent subprocess amortizes that cost to zero after boot.
+</div>
+
+<h3 id="contract">Formula Contract &amp; Formula Storage</h3>
+
+<h4>Formula Storage — formulas/ Directory</h4>
+<p>Formulas live in a <span class="inline">formulas/</span> directory mounted at container runtime. One <span class="inline">.py</span> file per ticker: <span class="inline">AAPL.py</span>, <span class="inline">TSLA.py</span>, etc. Go reads the file content at evaluation time, computes its SHA-256 hash, and sends both in the <span class="inline">EvalRequest</span>. A file-watcher goroutine detects changes and invalidates the cached hash for that ticker — triggering <span class="inline">prev_state</span> reset on the next evaluation. Formula updates take effect without container restart.</p>
+
+<pre><span class="c">// Mount at runtime: -v ./formulas:/app/formulas</span>
+<span class="c">// Go reads formula per evaluation:</span>
+code, _ := os.<span class="f">ReadFile</span>(<span class="f">fmt</span>.<span class="f">Sprintf</span>(<span class="s">"/app/formulas/%s.py"</span>, ticker))
+hash    := <span class="f">sha256hex</span>(code)
+<span class="c">// Send code+hash in EvalRequest; Python exec()s it in isolated namespace</span></pre>
+
+<table>
+    <tr><th>Approach</th><th>Hot-reload</th><th>Versioning</th><th>Verdict</th></tr>
+    <tr><td>Mounted <code>formulas/</code> dir</td><td>✓ file watcher</td><td>via Git on host</td><td>✓ <strong>Chosen</strong></td></tr>
+    <tr><td>Inline in config.json</td><td>restart required</td><td>manual</td><td>✗ messy for long formulas</td></tr>
+    <tr><td>SQLite <code>formulas</code> table</td><td>✓ poll-based</td><td>row versioning</td><td>viable alternative</td></tr>
+</table>
+
+<p>Every AI-generated formula must expose a single entry point function. Go and Python agree on this interface over JSON via stdin/stdout.</p>
+
+<h4>Request Schema (Go → Python stdin)</h4>
+<pre>{
+  <span class="s">"ticker"</span>:       <span class="s">"AAPL"</span>,
+  <span class="s">"formula_hash"</span>: <span class="s">"sha256:abc123"</span>,    <span class="c">// used for state invalidation</span>
+  <span class="s">"formula_code"</span>: <span class="s">"def evaluate(df, prev): ..."</span>,
+  <span class="s">"data"</span>: [
+    { <span class="s">"t"</span>: 1718000000, <span class="s">"o"</span>: 180.1, <span class="s">"h"</span>: 181.0, <span class="s">"l"</span>: 179.5, <span class="s">"c"</span>: 180.8, <span class="s">"v"</span>: 123456 },
+    ...
+  ],
+  <span class="s">"prev_state"</span>: { ... }              <span class="c">// {} on first call or after hash mismatch</span>
+}</pre>
+
+<h4>Response Schema (Python stdout → Go)</h4>
+<pre>{
+  <span class="s">"signal"</span>:    1,         <span class="c">// 1 = trigger, 0 = hold</span>
+  <span class="s">"new_state"</span>: { ... },  <span class="c">// whatever the formula wants to persist</span>
+  <span class="s">"error"</span>:     null       <span class="c">// non-null string on exception</span>
+}</pre>
+
+<h4>Minimal valid formula</h4>
+<pre><span class="k">import</span> pandas_ta <span class="k">as</span> ta
+
+<span class="k">def</span> <span class="f">evaluate</span>(df, prev):
+    df.ta.<span class="f">rsi</span>(length=<span class="n">14</span>, append=<span class="ok">True</span>)
+    latest_rsi = df[<span class="s">"RSI_14"</span>].iloc[-<span class="n">1</span>]
+    signal = <span class="n">1</span> <span class="k">if</span> latest_rsi &lt; <span class="n">30</span> <span class="k">else</span> <span class="n">0</span>
+    <span class="k">return</span> signal, {<span class="s">"last_rsi"</span>: latest_rsi}   <span class="c"># (signal, new_state)</span></pre>
+
+<h3 id="state">Incremental State Reuse</h3>
+<p>Because Python subprocesses are persistent and each worker goroutine holds a <span class="inline">map[ticker]prevState</span>, formulas can skip recomputing the full historical series each tick. They receive <span class="inline">prev_state</span> containing whatever they stored last tick — previous indicator values, partial sums, fitted parameters, etc.</p>
+
+<p>A formula using incremental EMA:</p>
+<pre><span class="k">def</span> <span class="f">evaluate</span>(df, prev):
+    alpha = <span class="n">2</span> / (<span class="n">200</span> + <span class="n">1</span>)
+    last_close = df[<span class="s">"c"</span>].iloc[-<span class="n">1</span>]
+    <span class="k">if</span> <span class="s">"ema"</span> <span class="k">not in</span> prev:
+        ema = df[<span class="s">"c"</span>].<span class="f">ewm</span>(span=<span class="n">200</span>, adjust=<span class="ok">False</span>).<span class="f">mean</span>().iloc[-<span class="n">1</span>]
+    <span class="k">else</span>:
+        ema = alpha * last_close + (<span class="n">1</span> - alpha) * prev[<span class="s">"ema"</span>]   <span class="c"># O(1) update</span>
+    <span class="k">return</span> (<span class="n">1</span> <span class="k">if</span> last_close &gt; ema <span class="k">else</span> <span class="n">0</span>), {<span class="s">"ema"</span>: ema}</pre>
+
+<h4>State Invalidation on Formula Change</h4>
+<p>Go stores the formula hash alongside <span class="inline">prevState</span>. On each evaluation, if the formula hash in the <span class="inline">EvalRequest</span> differs from the stored hash, Go sends <span class="inline">prev_state: {}</span> and resets the stored hash. The formula detects the empty state and falls back to full computation. No stale state leaks across formula versions.</p>
+
+<h3 id="isolation">Formula Isolation</h3>
+<p>Each formula is <span class="inline">exec()</span>-ed into a <strong>fresh isolated namespace dict</strong> on every invocation. This prevents symbol leakage between consecutive stock evaluations inside the same subprocess.</p>
+<pre><span class="k">def</span> <span class="f">_run_job</span>(job):
+    ticker = job[<span class="s">"ticker"</span>]
+    formula_hash = job[<span class="s">"formula_hash"</span>]
+
+    <span class="c"># State invalidation on formula change</span>
+    stored = _state_store.<span class="f">get</span>(ticker, {})
+    <span class="k">if</span> stored.<span class="f">get</span>(<span class="s">"_hash"</span>) != formula_hash:
+        stored = {}
+
+    prev_state = stored.<span class="f">get</span>(<span class="s">"state"</span>, {})
+
+    df = pd.<span class="f">DataFrame</span>(job[<span class="s">"data"</span>])
+    df.<span class="f">rename</span>(columns={<span class="s">"t"</span>:<span class="s">"timestamp"</span>,<span class="s">"o"</span>:<span class="s">"open"</span>,<span class="s">"h"</span>:<span class="s">"high"</span>,<span class="s">"l"</span>:<span class="s">"low"</span>,<span class="s">"c"</span>:<span class="s">"close"</span>,<span class="s">"v"</span>:<span class="s">"volume"</span>}, inplace=<span class="ok">True</span>)
+
+    <span class="c"># Fresh namespace per call — no symbol bleed between stocks</span>
+    ns = {}
+    <span class="f">exec</span>(job[<span class="s">"formula_code"</span>], ns)
+    signal, new_state = ns[<span class="s">"evaluate"</span>](df, prev_state)
+
+    _state_store[ticker] = {<span class="s">"_hash"</span>: formula_hash, <span class="s">"state"</span>: new_state}
+    <span class="k">return</span> {<span class="s">"signal"</span>: <span class="f">int</span>(signal), <span class="s">"new_state"</span>: new_state, <span class="s">"error"</span>: <span class="ok">None</span>}</pre>
+
+<div class="callout note-warn">
+    <strong>Imports inside formulas</strong>
+    An AI-generated formula can <span class="inline">import</span> additional libraries inside <span class="inline">evaluate()</span>. This works because Python's import system caches modules — second import of <span class="inline">scipy</span> is effectively free. But undeclared imports of unavailable libraries will raise <span class="inline">ImportError</span>, caught by the outer try/except and returned as an error result. Always pre-install all expected libraries in the Dockerfile.
+</div>
+
+
+<!-- ══════════════════════════════════════════
+  4. DATA LAYER
+══════════════════════════════════════════ -->
+<h2 id="data">6. Data Layer — SQLite Persistence <span class="pill pill-sql">SQLite</span></h2>
+
+<p>SQLite is the <em>persistence</em> layer only — not the serving layer. It survives container restarts and provides the backfill source on boot. During normal operation it is written to (new hourly candles, signal log) but never read from for evaluation. See <a href="#ram">Section 4 — RAM Layer</a> for the serving path.</p>
+
+<h3 id="schema">Schema</h3>
+<pre><span class="c">-- Primary OHLCV cache: 2 years of hourly data per ticker</span>
+<span class="k">CREATE TABLE</span> ohlcv (
+    ticker    <span class="t">TEXT</span>    <span class="k">NOT NULL</span>,
+    timestamp <span class="t">INTEGER</span> <span class="k">NOT NULL</span>,   <span class="c">-- Unix epoch seconds (UTC)</span>
+    open      <span class="t">REAL</span>    <span class="k">NOT NULL</span>,
+    high      <span class="t">REAL</span>    <span class="k">NOT NULL</span>,
+    low       <span class="t">REAL</span>    <span class="k">NOT NULL</span>,
+    close     <span class="t">REAL</span>    <span class="k">NOT NULL</span>,
+    volume    <span class="t">REAL</span>    <span class="k">NOT NULL</span>,
+    <span class="k">PRIMARY KEY</span> (ticker, timestamp)   <span class="c">-- covers upsert + read index</span>
+);
+
+<span class="c">-- Last time a signal was sent per ticker (deduplication)</span>
+<span class="k">CREATE TABLE</span> last_signal (
+    ticker       <span class="t">TEXT</span>    <span class="k">PRIMARY KEY</span>,
+    triggered_at <span class="t">INTEGER</span> <span class="k">NOT NULL</span>,
+    formula_hash <span class="t">TEXT</span>
+);
+
+<span class="c">-- Audit log of all signals ever fired (optional, recommended)</span>
+<span class="k">CREATE TABLE</span> signal_log (
+    id           <span class="t">INTEGER</span> <span class="k">PRIMARY KEY AUTOINCREMENT</span>,
+    ticker       <span class="t">TEXT</span>    <span class="k">NOT NULL</span>,
+    triggered_at <span class="t">INTEGER</span> <span class="k">NOT NULL</span>,
+    formula_hash <span class="t">TEXT</span>,
+    signal_value <span class="t">INTEGER</span>
+);
+
+<span class="c">-- Bootstrap state tracking</span>
+<span class="k">CREATE TABLE</span> bootstrap_state (
+    ticker       <span class="t">TEXT</span>    <span class="k">PRIMARY KEY</span>,
+    backfill_done <span class="t">INTEGER</span> <span class="k">NOT NULL DEFAULT</span> 0,   <span class="c">-- 0 | 1</span>
+    oldest_ts    <span class="t">INTEGER</span>
+);</pre>
+
+<p>The <span class="inline">PRIMARY KEY (ticker, timestamp)</span> on <span class="inline">ohlcv</span> serves triple duty: uniqueness constraint for upserts, B-tree index for range reads, and conflict target for <span class="inline">INSERT OR REPLACE</span>. No separate <span class="inline">CREATE INDEX</span> needed.</p>
+
+<h3 id="writer">Single Writer Goroutine</h3>
+<p>Without WAL mode, SQLite is strictly single-writer. A dedicated writer goroutine is the correct pattern: all other goroutines send <span class="inline">WriteRequest</span>s over a buffered channel; the writer processes them and sends back acknowledgment via a per-request reply channel.</p>
+
+<pre><span class="k">type</span> <span class="t">WriteRequest</span> <span class="k">struct</span> {
+    SQL    <span class="t">string</span>
+    Args   []<span class="k">interface</span>{}
+    Reply  <span class="k">chan</span> <span class="t">error</span>
+}
+
+<span class="k">func</span> <span class="f">runWriter</span>(db *sql.<span class="t">DB</span>, ch &lt;<span class="k">-chan</span> <span class="t">WriteRequest</span>) {
+    <span class="k">for</span> req := <span class="k">range</span> ch {
+        _, err := db.<span class="f">Exec</span>(req.SQL, req.Args...)
+        req.Reply &lt;- err
+    }
+}</pre>
+
+<h4>Batch Commit Pattern</h4>
+<p>Stage 1 issues 50 candle writes per tick. Rather than 50 individual <span class="inline">Exec</span> calls, the writer should batch them into one transaction. Stage 1 signals the end of a tick batch, and the writer commits once:</p>
+<pre><span class="c">// Writer accumulates until it sees a BatchFlush sentinel</span>
+<span class="k">case</span> req := &lt;-ch:
+    <span class="k">if</span> req.BatchFlush {
+        tx.<span class="f">Commit</span>()    <span class="c">// one commit for all 50 candles</span>
+        req.Reply &lt;- nil
+    } <span class="k">else</span> {
+        tx.<span class="f">Exec</span>(req.SQL, req.Args...)
+    }</pre>
+
+<h3 id="bootstrap">Bootstrap vs Steady-State</h3>
+<p>On first run (or when a new ticker is added), the engine needs to backfill 2 years of hourly data before evaluation begins. This is a separate operational mode from the hourly tick loop.</p>
+<div class="diagram"><span class="stage">[ Engine Startup ]</span>
+        │
+        ├─ <span class="f">checkBootstrapState()</span>  ── reads bootstrap_state table
+        │
+        ├── <span class="warn">[ Tickers with backfill_done=0 ]</span>
+        │         │
+        │         ▼
+        │   <span class="proc">[ Backfill Worker ]</span>
+        │     Rate-limited to Alpaca free-tier budget
+        │     Paginated historical fetch (max bars per request)
+        │     Writes via SQLite Writer channel
+        │     Sets backfill_done=1 when complete
+        │
+        └── <span class="ok">[ All tickers backfilled ]</span>
+                  │
+                  ▼
+          <span class="stage">[ Start Hourly Tick Loop ]</span></pre>
+
+<p>The backfill worker uses a <strong>separate rate-limit budget</strong> from the live tick fetcher — they should not compete for the same Alpaca API quota. Two distinct token buckets or a single shared one with priority lanes.</p>
+
+<h3 id="rolling">Rolling Window Pruning</h3>
+<p>The <span class="inline">ohlcv</span> table is capped at 2 years per ticker. A low-priority background goroutine runs the prune query weekly:</p>
+<pre><span class="k">DELETE FROM</span> ohlcv
+<span class="k">WHERE</span> timestamp &lt; <span class="f">unixepoch</span>(<span class="s">'now'</span>, <span class="s">'-2 years'</span>);</pre>
+<p>Run via the SQLite Writer channel with a <span class="inline">PRAGMA optimize;</span> and <span class="inline">VACUUM;</span> after to reclaim pages. Schedule during off-hours (e.g. Sunday 02:00 UTC).</p>
+
+
+<!-- ══════════════════════════════════════════
+  5. PROCESS DATA MANAGER
+══════════════════════════════════════════ -->
+<h2 id="pdm">7. Process Data Manager (PDM)</h2>
+
+<p>The PDM is the resource governor between Stage 2 and the Python worker pool. It exposes a simple <span class="inline">Submit(EvalRequest)</span> interface and handles all scheduling and resource tracking internally.</p>
+
+<div class="diagram"><span class="stage">Stage 2</span>  ──<span class="chan">chan EvalRequest</span>──►  <span class="stage">[ PDM ]</span>
+                                        │
+                            ┌───────────┼───────────┐
+                            │           │           │
+                     <span class="proc">[ Worker 0 ]</span>  <span class="proc">[ Worker 1 ]</span>  <span class="proc">[ Worker N ]</span>
+                         <span class="note">│                │               │</span>
+                      <span class="note">Python           Python         Python</span>
+                      <span class="note">stdin/stdout     stdin/stdout   stdin/stdout</span>
+                            │
+                    <span class="chan">chan EvalResult</span>
+                            │
+                            ▼
+                        <span class="stage">Stage 4</span></div>
+
+<h3>PDM Components</h3>
+<div class="cols">
+    <div class="col-box">
+        <h4>Semaphore</h4>
+        <p>Buffered channel of size N (max concurrent evaluations). A worker acquires before evaluating, releases after. Stage 2 blocks if all workers are busy — natural backpressure.</p>
+        <pre>sem := <span class="f">make</span>(<span class="k">chan</span> <span class="k">struct</span>{}, maxWorkers)</pre>
+    </div>
+    <div class="col-box">
+        <h4>Worker Pool</h4>
+        <p>Fixed slice of <span class="inline">PyWorker</span>. Created at startup, never torn down. PDM assigns jobs via a work channel each worker listens on.</p>
+        <pre>workers []*PyWorker  <span class="c">// len = N</span>
+workCh  chan EvalRequest</pre>
+    </div>
+</div>
+<div class="cols">
+    <div class="col-box">
+        <h4>Per-job Timeout</h4>
+        <p>Each evaluation wrapped in <span class="inline">context.WithTimeout</span>. Go kills the subprocess stdin write, reads any partial stdout, marks result as error. Worker respawns its subprocess on timeout detection.</p>
+        <pre>ctx, cancel := context.<span class="f">WithTimeout</span>(
+    parentCtx, evalTimeout)
+<span class="k">defer</span> <span class="f">cancel</span>()</pre>
+    </div>
+    <div class="col-box">
+        <h4>Worker Restart</h4>
+        <p>If a Python subprocess exits unexpectedly (crash, OOM kill), the worker goroutine detects the broken pipe, logs to the error channel, and respawns the subprocess before accepting the next job.</p>
+        <pre><span class="k">if</span> err := w.proc.Wait(); err != nil {
+    errCh &lt;- err
+    w.<span class="f">respawn</span>()
+}</pre>
+    </div>
+</div>
+
+<h3>Resource Tracking</h3>
+<p>The PDM optionally tracks per-worker evaluation duration. A simple ring buffer of the last 100 durations per worker lets you detect a consistently slow formula (one stock's formula regularly timing out) vs. a transient spike.</p>
+
+<table>
+    <tr><th>Limit</th><th>Mechanism</th><th>Recommended Value</th></tr>
+    <tr><td>Max concurrent evaluations</td><td>Semaphore (buffered chan)</td><td>N = num CPU cores / 2</td></tr>
+    <tr><td>Per-evaluation wall time</td><td><code>context.WithTimeout</code></td><td>30 seconds</td></tr>
+    <tr><td>Per-subprocess memory</td><td>Docker cgroup / OS</td><td>Set at container level</td></tr>
+    <tr><td>Total container memory</td><td><code>docker run --memory</code></td><td>Depends on N workers</td></tr>
+</table>
+
+
+<!-- ══════════════════════════════════════════
+  6. SIGNAL DEDUPLICATION
+══════════════════════════════════════════ -->
+<h2 id="dedup">6. Signal Deduplication</h2>
+
+<p>Without deduplication, a stock holding above threshold for 6 consecutive hours fires 6 Discord pings. The cooldown is configurable per ticker (natural fit with the existing override system).</p>
+
+<pre><span class="c">-- Stage 4 checks this before firing Discord</span>
+<span class="k">SELECT</span> triggered_at <span class="k">FROM</span> last_signal <span class="k">WHERE</span> ticker = ?;
+<span class="c">-- If (now - triggered_at) &lt; cooldown → skip</span>
+<span class="c">-- If triggered_at is null or expired → fire and upsert</span>
+
+<span class="k">INSERT INTO</span> last_signal (ticker, triggered_at, formula_hash)
+<span class="k">VALUES</span> (?, <span class="f">unixepoch</span>(<span class="s">'now'</span>), ?)
+<span class="k">ON CONFLICT</span>(ticker) <span class="k">DO UPDATE SET</span>
+    triggered_at = excluded.triggered_at,
+    formula_hash = excluded.formula_hash;</pre>
+
+<table>
+    <tr><th>Config Level</th><th>Key</th><th>Default</th></tr>
+    <tr><td>Global default</td><td><code>signal_cooldown_hours</code></td><td>4 hours</td></tr>
+    <tr><td>Per-ticker override</td><td><code>tickers[TSLA].cooldown_hours</code></td><td>override global</td></tr>
+    <tr><td>Disable dedup</td><td>set to 0</td><td>—</td></tr>
+</table>
+
+
+<!-- ══════════════════════════════════════════
+  7. ERROR HANDLING
+══════════════════════════════════════════ -->
+<h2 id="errors">7. Error Handling</h2>
+
+<table>
+    <tr><th>Error</th><th>Detection</th><th>Action</th></tr>
+    <tr>
+        <td>Alpaca API failure</td>
+        <td>Non-2xx response or timeout</td>
+        <td>Emit TickerUpdate with Err set. Stage 2 excludes ticker from this tick. Log to error channel.</td>
+    </tr>
+    <tr>
+        <td>Stale candle (timestamp mismatch)</td>
+        <td>Stage 2 staleness check</td>
+        <td>Skip ticker this tick. Log warning to error channel.</td>
+    </tr>
+    <tr>
+        <td>SQLite write failure</td>
+        <td>Writer goroutine reply channel</td>
+        <td>Critical — halt the pipeline, log to error channel, attempt graceful shutdown.</td>
+    </tr>
+    <tr>
+        <td>Python formula exception</td>
+        <td><code>error</code> field in JSON response</td>
+        <td>EvalResult marked as error. Stage 4 routes to error channel, not signal channel. Subprocess stays alive.</td>
+    </tr>
+    <tr>
+        <td>Python subprocess timeout</td>
+        <td><code>context.WithTimeout</code></td>
+        <td>Kill subprocess stdin write. Worker respawns subprocess. EvalResult marked as timeout error.</td>
+    </tr>
+    <tr>
+        <td>Python subprocess crash</td>
+        <td>Broken pipe on stdin write</td>
+        <td>Worker detects broken pipe, logs crash, respawns subprocess, retries job once.</td>
+    </tr>
+    <tr>
+        <td>Discord POST failure</td>
+        <td>Non-2xx response</td>
+        <td>Exponential backoff, max 3 retries. On final failure, log to error channel with full payload so signal is not lost.</td>
+    </tr>
+    <tr>
+        <td>Discord rate limit (429)</td>
+        <td>429 + Retry-After header</td>
+        <td>Respect Retry-After header. Queue pending signals. Never drop.</td>
+    </tr>
+</table>
+
+<div class="callout note-danger">
+    <strong>What must never be dropped silently</strong>
+    A signal that was computed but failed to POST to Discord. Always persist the computed signal to <span class="inline">signal_log</span> before attempting the POST — then the audit trail exists regardless of webhook status.
+</div>
+
+
+<!-- ══════════════════════════════════════════
+  8. RESOURCE LIMITS
+══════════════════════════════════════════ -->
+<h2 id="resources">8. Resource Limits</h2>
+
+<div class="cols">
+    <div class="col-box">
+        <h4>Container Level (Docker)</h4>
+        <pre>docker run \
+  --memory=2g \
+  --memory-swap=2g \
+  --cpus="2.0" \
+  trading-engine</pre>
+        <p>Hard OOM kill at 2 GB prevents the container from impacting the host. No swap prevents slow memory death — fast kill is better for a trading engine.</p>
+    </div>
+    <div class="col-box">
+        <h4>Process Level (Go → Python)</h4>
+        <pre><span class="c">// Per-evaluation timeout</span>
+ctx, _ := context.WithTimeout(
+    parent, 30*time.Second)
+
+<span class="c">// Worker pool size = concurrency cap</span>
+<span class="c">// indirectly limits total Python mem</span>
+maxWorkers = runtime.NumCPU() / 2</pre>
+        <p>Python subprocess memory is bounded indirectly by capping concurrent workers. Explicit per-process memory limits require <span class="inline">setrlimit</span> via a wrapper script if needed.</p>
+    </div>
+</div>
+
+<table>
+    <tr><th>Resource</th><th>Limit</th><th>Enforcement</th></tr>
+    <tr><td>Container RAM</td><td>2 GB (tune to N workers)</td><td><code>docker --memory</code></td></tr>
+    <tr><td>Container CPU</td><td>2 cores</td><td><code>docker --cpus</code></td></tr>
+    <tr><td>Per-evaluation wall time</td><td>30 seconds</td><td><code>context.WithTimeout</code></td></tr>
+    <tr><td>Concurrent evaluations</td><td>N (semaphore)</td><td>PDM semaphore</td></tr>
+    <tr><td>Alpaca fetch concurrency</td><td>5 goroutines</td><td>Stage 1 pool</td></tr>
+</table>
+
+
+<!-- ══════════════════════════════════════════
+  9. CONFIG & SECRETS
+══════════════════════════════════════════ -->
+<h2 id="secrets">9. Configuration &amp; Secrets</h2>
+
+<p>Two-tier configuration: secrets injected via environment variables, operational config via a mounted YAML/JSON file.</p>
+
+<div class="cols">
+    <div class="col-box">
+        <h4>Secrets (env vars)</h4>
+        <pre>ALPACA_API_KEY=...
+ALPACA_API_SECRET=...
+DISCORD_SIGNAL_WEBHOOK=https://...
+DISCORD_ERROR_WEBHOOK=https://...</pre>
+        <p>Passed via <span class="inline">docker run -e</span> or a <span class="inline">.env</span> file. Never baked into the image or committed to source control.</p>
+    </div>
+    <div class="col-box">
+        <h4>Operational Config (config.json)</h4>
+        <pre>{
+  "tickers": ["AAPL","TSLA",...],
+  "signal_cooldown_hours": 4,
+  "py_worker_count": 4,
+  "eval_timeout_sec": 30,
+  "ticker_overrides": {
+    "TSLA": { "lookback": 500, "cooldown_hours": 2 }
+  }
+}</pre>
+    </div>
+</div>
+
+<p>Config file is mounted into the container at runtime (<span class="inline">-v ./config.json:/app/config.json</span>). Changing the ticker list or formula parameters does not require an image rebuild — restart the container.</p>
+
+
+<!-- ══════════════════════════════════════════
+  10. STARTUP SEQUENCE
+══════════════════════════════════════════ -->
+<h2 id="startup">10. Startup Sequence</h2>
+
+<div class="diagram">Container starts
+    │
+    ├─ 1. Load config.json + env vars
+    │
+    ├─ 2. Open SQLite connection (no WAL)
+    │       Apply schema migrations if needed
+    │
+    ├─ 3. Start SQLite Writer goroutine
+    │
+    ├─ 4. Start PDM
+    │       Spawn N Python subprocesses
+    │       Wait for each subprocess to ack ready (first stdin handshake)
+    │
+    ├─ 5. Check bootstrap_state for each ticker
+    │
+    ├─ 6. [ Any tickers with backfill_done=0 ]
+    │         Run Backfill Worker (rate-limited, blocking)
+    │         Writes 2yr history to SQLite
+    │         Sets backfill_done=1 per ticker
+    │
+    ├─ 7. [ All tickers ready ]
+    │
+    ├─ 8. Start Stage 4 Post Processor goroutine
+    │
+    ├─ 9. Start Stage 2 Sync &amp; Decision goroutine
+    │
+    └─ 10. Start Stage 1 API Puller (arms hourly timer)
+             System is now live.</div>
+
+
+<!-- ══════════════════════════════════════════
+  11. DOCKER
+══════════════════════════════════════════ -->
+<h2 id="docker">11. Docker Layout</h2>
+
+<pre><span class="c"># ── Build stage ──────────────────────────────────────────────</span>
+<span class="k">FROM</span> golang:1.22-bookworm <span class="k">AS</span> builder
+<span class="k">WORKDIR</span> /build
+<span class="k">COPY</span> go.mod go.sum ./
+<span class="k">RUN</span> go mod download
+<span class="k">COPY</span> . .
+<span class="k">RUN</span> CGO_ENABLED=1 go build -o engine ./cmd/engine  <span class="c"># CGO for sqlite3</span>
+
+<span class="c"># ── Runtime stage ─────────────────────────────────────────────</span>
+<span class="k">FROM</span> debian:bookworm-slim
+<span class="k">RUN</span> apt-get update &amp;&amp; apt-get install -y \
+    python3 python3-pip ca-certificates &amp;&amp; \
+    pip3 install pandas numpy pandas_ta --break-system-packages &amp;&amp; \
+    apt-get clean
+
+<span class="k">WORKDIR</span> /app
+<span class="k">COPY</span> --from=builder /build/engine .
+<span class="k">COPY</span> scripts/worker.py .          <span class="c"># Python subprocess entry point</span>
+
+<span class="c"># config.json and SQLite DB are mounted at runtime — not baked in</span>
+<span class="k">VOLUME</span> ["/app/data"]              <span class="c"># SQLite lives here — persists across restarts</span>
+
+<span class="k">ENV</span> DB_PATH=/app/data/engine.db
+
+<span class="k">ENTRYPOINT</span> ["/app/engine"]</pre>
+
+<div class="callout note-warn">
+    <strong>SQLite persistence</strong>
+    Mount <span class="inline">/app/data</span> as a Docker volume. Without this, the entire 2-year cache is lost on every container restart, forcing a full re-backfill. <span class="inline">docker run -v trading-data:/app/data ...</span>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+  12. GO TYPE REFERENCE
+══════════════════════════════════════════ -->
+<h2 id="interfaces">12. Go Type Reference</h2>
+
+<p>All channel boundaries use these types. Each stage only imports and uses its own input/output types.</p>
+
+<pre><span class="c">// ── Stage 1 outputs ───────────────────────────────────────────</span>
+<span class="k">type</span> <span class="t">OHLCV</span> <span class="k">struct</span> {
+    Timestamp <span class="t">int64</span>
+    Open, High, Low, Close, Volume <span class="t">float64</span>
+}
+
+<span class="k">type</span> <span class="t">TickerUpdate</span> <span class="k">struct</span> {
+    Ticker    <span class="t">string</span>
+    Candle    <span class="t">OHLCV</span>
+    TickTime  <span class="t">time.Time</span>
+    Err       <span class="t">error</span>   <span class="c">// non-nil if fetch failed</span>
+}
+
+<span class="c">// ── SQLite Writer ─────────────────────────────────────────────</span>
+<span class="k">type</span> <span class="t">WriteRequest</span> <span class="k">struct</span> {
+    SQL        <span class="t">string</span>
+    Args       []<span class="k">interface</span>{}
+    BatchFlush <span class="t">bool</span>       <span class="c">// true = commit current transaction</span>
+    Reply      <span class="k">chan</span> <span class="t">error</span>
+}
+
+<span class="c">// ── Stage 2 outputs ───────────────────────────────────────────</span>
+<span class="k">type</span> <span class="t">EvalRequest</span> <span class="k">struct</span> {
+    Ticker      <span class="t">string</span>
+    TickTime    <span class="t">time.Time</span>
+    Data        []<span class="t">OHLCV</span>
+    FormulaCode <span class="t">string</span>
+    FormulaHash <span class="t">string</span>
+    PrevState   json.<span class="t">RawMessage</span>
+}
+
+<span class="c">// ── Stage 3 outputs ───────────────────────────────────────────</span>
+<span class="k">type</span> <span class="t">EvalResult</span> <span class="k">struct</span> {
+    Ticker      <span class="t">string</span>
+    TickTime    <span class="t">time.Time</span>
+    Signal      <span class="t">int</span>             <span class="c">// 1 = trigger, 0 = hold</span>
+    FormulaHash <span class="t">string</span>
+    NewState    json.<span class="t">RawMessage</span>
+    Err         <span class="t">error</span>
+    EvalDuration <span class="t">time.Duration</span>
+}</pre>
+
+<hr>
+
+<p style="color: var(--muted); font-size: 0.82em; text-align: center;">
+    Trading Engine Architecture — compiled from design sessions · last updated 2026
+</p>
+
+</div>
 </body>
 </html>
