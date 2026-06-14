@@ -17,7 +17,8 @@
 | M6 | **Process Data Manager (PDM)** | Go | Semaphore-bounded dispatcher; routes BatchEvalRequests to Python workers |
 | M7 | **PyWorker Pool** | Go + Python | N persistent Python subprocesses; each has a Go goroutine + Python process |
 | M8 | **Post Processor (Result Sink)** | Go | Dedup check, Discord signal POST, updates last_signal |
-| M9 | **Error Manager** | Go | Single goroutine; receives all ErrorEvents, routes to Discord error webhook |
+| M9 | **Error Manager** | Go | Observability component; receives all ErrorEvents, logs, aggregates, routes to Discord error webhook |
+| M9.5 | **Engine Monitor** | Go | Collects heartbeats, queue depths, worker health; exposes /health and /status endpoints |
 | M10 | **Backfill Worker** | Go | One-time historical data fetch on startup; separate rate-limit budget |
 | M11 | **Formula File Watcher** | Go | Watches formulas/*.py for changes; invalidates Formula Manager cache |
 | M12 | **Rolling Pruner** | Go | Weekly low-priority goroutine; deletes OHLCV rows older than 2 years |
@@ -64,6 +65,13 @@ ALL managers ── ErrorEvent channel ──► M9 Error Manager
                                         ▼
                                         External: Discord #engine-errors
 
+ALL managers ── StatusUpdate channel ──► M9.5 Engine Monitor
+                                          │
+                                          ├─ manager health
+                                          ├─ queue depth metrics
+                                          ├─ worker status
+                                          └─ /status endpoint
+
 M12 Rolling Pruner ── writes via ──► M3 SQLite Writer (DELETE + VACUUM)
 ```
 
@@ -79,10 +87,28 @@ M12 Rolling Pruner ── writes via ──► M3 SQLite Writer (DELETE + VACUUM
 | `batchEvalRequestCh` | `chan BatchEvalRequest` | M5 → M6 | Formula attached, grouped by hash |
 | `evalResultCh` | `chan EvalResult` | M6 → M8 | Signal + new_state from Python |
 | `errorCh` | `chan ErrorEvent` | ALL → M9 | Centralized error reporting |
+| `statusCh` | `chan StatusUpdate` | ALL → M9.5 | Health, heartbeat, queue depth reporting |
 | `configCh` | `chan ConfigSnapshot` | M13 → all at boot | One-shot config distribution |
 | `formulaInvalidationCh` | `chan string` (ticker) | M11 → M5 | File change notification |
 | `workCh` | `chan BatchEvalRequest` | M6 → M7[i] | Per-worker job dispatch |
 | stdin/stdout | JSON lines | M6 ↔ M7[i] | Per-evaluation request/response |
+
+### Shared Types
+
+```go
+type StatusUpdate struct {
+    Manager       string
+    Healthy       bool
+    QueueDepth    int
+    ErrorCount    int
+    LastHeartbeat time.Time
+}
+
+type FormulaMeta struct {
+    ID      string
+    Version int
+}
+```
 
 ---
 
@@ -135,23 +161,23 @@ M5 Formula Manager
   │
   │ checks formulaCache[ticker]
   │   cache miss or invalidated → read formulas/{ticker}.py from disk
-  │                              → compute SHA-256 hash
-  │                              → store in formulaCache
+  │                              → compute FormulaMeta{ID, Version}
+  │                              → store FormulaMeta in formulaCache
   │
   │ injects per-ticker params from config (threshold overrides, etc.)
   │
-  │ groups by formula_hash:
-  │   if same hash as previous ticker → append to current BatchEvalRequest
-  │   if new hash → flush previous BatchEvalRequest → M6
-  │                start new BatchEvalRequest
+  │ groups by FormulaMeta.ID:
+  │   if same ID as previous ticker → append to current BatchEvalRequest
+  │   if new ID → flush previous BatchEvalRequest → M6
+  │             start new BatchEvalRequest
   │
-  │ sends BatchEvalRequest{FormulaHash, Code, []BatchItem} → M6 PDM
+  │ sends BatchEvalRequest{FormulaMeta, Code, []BatchItem} → M6 PDM
   │
   │ M11 Formula File Watcher (async, independent):
   │   fsnotify on formulas/*.py
   │   on change → sends ticker name → M5 formulaInvalidationCh
   │   M5 deletes formulaCache[ticker] → next eval re-reads from disk
-  │   new hash propagates naturally → M6 detects hash change → resets prev_state
+  │   new Version propagates naturally → M6 detects version mismatch → resets prev_state
 ```
 
 ### Phase D — Python Evaluation (M6 + M7)
@@ -168,13 +194,16 @@ M7 PyWorker[i]
   │   writes JSON to Python subprocess stdin
   │   reads JSON from Python subprocess stdout
   │
+  │ PDM checks FormulaMeta.Version vs stored version
+  │   version mismatch → prev_state = nil (full recompute)
+  │
   │ Python subprocess:
   │   _run_job(job):
-  │     checks formula_hash vs stored _hash
+  │     checks formula version vs stored version
   │       mismatch → prev_state = {} (full recompute)
   │     exec(formula_code, fresh_namespace)
   │     signal, new_state = namespace["evaluate"](df, prev_state)
-  │     stores _state_store[ticker] = {_hash, state: new_state}
+  │     stores _state_store[ticker] = {version, state: new_state}
   │     returns {signal, new_state, error: null}
   │
   │ Go goroutine:
@@ -214,6 +243,21 @@ M8 Post Processor
 
 ### Phase F — Error Handling (M9)
 
+M9 Error Manager is an **observability component** — it does not own recovery.
+
+Responsibilities:
+- Logging
+- Alert routing
+- Error aggregation
+- Burst suppression (>10 errors in 10s from same source → throttle, log summary)
+- Discord error delivery
+
+Non-Responsibilities:
+- Retries (handled by M7/M8)
+- Worker recovery (handled by M6)
+- Process supervision
+- Pipeline orchestration
+
 ```
 M9 Error Manager
   │ receives ErrorEvent from ANY manager (non-blocking send)
@@ -226,9 +270,45 @@ M9 Error Manager
   │   Stale data        → log + Discord error webhook
   │   SQLite failures   → log + Discord error webhook + trigger graceful shutdown
   │   Python exceptions → log + Discord error webhook
-  │   Discord failures  → log + retry (already handled by M8)
+  │   Discord failures  → log (retry already handled by M8)
   │
   │ POST to Discord error webhook (separate channel from signals)
+```
+
+### Phase F.5 — Engine Monitor (M9.5)
+
+M9.5 Engine Monitor provides a system-wide view without coupling managers together.
+
+Responsibilities:
+- Receive StatusUpdate from all managers
+- Track heartbeat freshness
+- Track queue depths
+- Track worker availability
+- Expose /health endpoint
+- Expose /status endpoint
+- Generate periodic system snapshots
+
+Non-Responsibilities:
+- No retries
+- No orchestration
+- No job scheduling
+- No business logic
+
+```
+M9.5 Engine Monitor
+  │ receives StatusUpdate from ALL managers (non-blocking send)
+  │
+  │ tracks per-manager:
+  │   heartbeat freshness  → stale if >2x expected interval
+  │   queue depth          → alert if >80% capacity
+  │   error count          → rolling 1-minute window
+  │   worker status        → idle / busy / crashed
+  │
+  │ exposes:
+  │   /health  → liveness probe (200 if all managers healthy)
+  │   /status  → full JSON snapshot of all manager states
+  │
+  │ generates periodic system snapshots (every 60s) for logging
 ```
 
 ### Phase G — Background Maintenance (M12)
@@ -268,20 +348,25 @@ M12 Rolling Pruner (weekly, independent)
        sets backfill_done=1
      BLOCKING — must complete before pipeline starts
 
-5. M9 Error Manager
+5. M9.5 Engine Monitor
+     starts status collector goroutine (blocks on statusCh)
+     exposes /health endpoint
+     exposes /status endpoint
+
+6. M9 Error Manager
      starts goroutine blocking on errorCh
 
-6. M8 Post Processor
+7. M8 Post Processor
      starts goroutine blocking on evalResultCh
 
-7. M4 Sync & Decision
+8. M4 Sync & Decision
      starts goroutine blocking on tickerUpdateCh
 
-8. M5 Formula Manager
+9. M5 Formula Manager
      pre-warms formulaCache for all tickers
      starts M11 Formula File Watcher goroutine
 
-9. M1 Filler Scheduler
+10. M1 Filler Scheduler
      builds initial min-heap from config tickers
      arms hourly timer (HH:02 Eastern)
      SYSTEM IS LIVE
@@ -300,6 +385,7 @@ M12 Rolling Pruner (weekly, independent)
 | SQLite DB | M3 SQLite Writer | M3 only (all writes funneled) | single writer goroutine |
 | `last_signal` cache | M8 Post Processor | M8 only | in-memory copy, refreshed from SQLite |
 | `errorCh` | M9 Error Manager | all producers | thread-safe channel |
+| `statusCh` | M9.5 Engine Monitor | all producers | thread-safe channel |
 | Config snapshot | M13 Config Loader | all managers | read-only after boot |
 
 ---
@@ -359,6 +445,8 @@ M12 Rolling Pruner fails
 
 7. **Pre-Discord persistence:** M8 writes to `signal_log` BEFORE attempting Discord POST. A signal computed but failed to deliver is never lost.
 
+8. **Engine Monitor is read-only:** M9.5 observes but never mutates. It has no backpressure mechanism, no retry logic, no orchestration. If M9.5 fails, the pipeline continues unaffected.
+
 ---
 
 ## 9. File Map — Where Each Manager Lives
@@ -390,6 +478,9 @@ internal/
 
   error/
     manager.go               ← M9 Error Manager (burst suppression, routing)
+
+  monitor/
+    collector.go             ← M9.5 Engine Monitor (health, status endpoints)
 
   backfill/
     worker.go                ← M10 Backfill Worker (historical fetch)

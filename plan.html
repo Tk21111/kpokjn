@@ -272,8 +272,10 @@
 <ul>
     <li><strong>Process isolation</strong> — untrusted Python formulas cannot crash the Go orchestrator</li>
     <li><strong>Decoupled stages</strong> — each pipeline stage communicates only via typed Go channels behind defined interfaces; any stage can be replaced independently</li>
-    <li><strong>Formula Manager</strong> — dedicated stage between sync and execution; owns formula loading, caching, hot-reload, grouping by hash, and params injection; no other stage touches formula files</li>
-    <li><strong>Centralized Error Manager</strong> — single goroutine receives all error events from all stages; owns burst suppression, routing, and Discord error delivery; stages call Report() and forget</li>
+    <li><strong>Formula Manager</strong> — dedicated stage between sync and execution; owns formula loading, caching, hot-reload, grouping by FormulaID, and params injection; uses FormulaID + Version for formula identification and state invalidation; no other stage touches formula files</li>
+    <li><strong>Centralized Error Manager (Alerting and logging)</strong> — single goroutine receives all error events from all stages; owns burst suppression, routing, and Discord error delivery; stages call Report() and forget</li>
+    <li><strong>Engine Monitor (System-wide health and visibility)</strong> — dedicated Engine Monitor receives heartbeats and status updates from all managers, providing a global health view without coupling manager internals together</li>
+    <li><strong>System observability</strong> — a dedicated Engine Monitor receives heartbeats and status updates from all managers; tracks queue depths, worker health, and heartbeat freshness; exposes /health and /status endpoints; provides a global health view without coupling manager internals together</li>
     <li><strong>Resource governance</strong> — a central Process Data Manager bounds concurrent Python evaluations and tracks resource usage</li>
     <li><strong>RAM as serving layer, SQLite as persistence</strong> — 2 years of OHLCV in SQLite; ring buffers in RAM serve all evaluations; SQLite read only on startup warm-up</li>
     <li><strong>Python runtime reuse</strong> — subprocesses stay alive across evaluations; pandas/numpy loaded once; per-ticker state preserved for incremental computation; batch execution within same formula group</li>
@@ -298,7 +300,14 @@
 │  <span class="proc">[ SQLite DB ]</span>       <span class="proc">[ RAM Ring Buffers ]</span>    <span class="proc">[ Python Pool ]</span>            │  │
 │                                                                          │  │
 │  <span class="warn">[ Error Manager ]</span> ◄────────────────────────────── all stages ──────────┘  │
-│                                                                             │
+│  <span class="note">(Alerting and logging)</span>                                          │
+│                                                                               │
+│                   <span class="proc">[ Engine Monitor ]</span> ◄── status updates ── all managers    │
+│                          ▲                                                    │
+│                          │                                                    │
+│                    status updates                                             │
+│                          │                                                    │
+│     all managers ────────┘                                                    │
 └─────────────────────────────────────────────────────────────────────────────┘
          ▲                                              │              │
          │                                              ▼              ▼
@@ -341,7 +350,14 @@
        └──► error: ──────────────────────────────────────────► <span class="warn">[ Error Manager ]</span>
                                                                        ▲
                                   all other stages ────────────────────┘
-                                  Report(ErrorEvent) — non-blocking</div>
+                                  Report(ErrorEvent) — non-blocking
+
+                   <span class="proc">[ Engine Monitor ]</span> ◄── status updates ── all managers
+                          │
+                          ├─ manager health &amp; heartbeats
+                          ├─ queue depth metrics
+                          ├─ worker status
+                          └─ /health + /status endpoints</div>
 
 <!-- S1 -->
 <div class="stage-card" data-stage="Stage 1">
@@ -384,12 +400,12 @@
 <!-- S25 -->
 <div class="stage-card" data-stage="Stage 2.5">
     <h3 id="s25">Stage 2.5 — Formula Manager <span class="pill pill-go">Go</span></h3>
-    <p>Sits between Sync and PDM. Receives bare <span class="inline">EvalRequest{Ticker, Data}</span>, resolves the formula for each ticker, attaches code + hash + params, then groups requests by formula hash into batches. No other stage reads formula files.</p>
+    <p>Sits between Sync and PDM. Receives bare <span class="inline">EvalRequest{Ticker, Data}</span>, resolves the formula for each ticker, attaches code + FormulaID + Version + params, then groups requests by FormulaID into batches. No other stage reads formula files.</p>
     <ul>
         <li>Maintains an in-memory <span class="inline">formulaCache</span> — file reads happen only on cache miss or file change</li>
-        <li>File-watcher goroutine invalidates cache entries on <span class="inline">formulas/*.py</span> modification; new hash propagates on next evaluation, triggering <span class="inline">prev_state</span> reset automatically</li>
+        <li>File-watcher goroutine invalidates cache entries on <span class="inline">formulas/*.py</span> modification; new version propagates on next evaluation, triggering <span class="inline">prev_state</span> reset automatically</li>
         <li>Injects per-ticker <span class="inline">params</span> from config so tickers can share one formula file with different thresholds/periods</li>
-        <li>Groups tickers sharing the same <span class="inline">formula_hash</span> into a single <span class="inline">BatchEvalRequest</span> — Python <span class="inline">exec()</span>s the formula once for the whole group</li>
+        <li>Groups tickers sharing the same <span class="inline">FormulaID</span> into a single <span class="inline">BatchEvalRequest</span> — Python <span class="inline">exec()</span>s the formula once for the whole group</li>
         <li><strong>Fail-open:</strong> missing formula file → emit <span class="inline">ErrorEvent</span> to Error Manager, skip ticker this cycle — never blocks the remaining batch</li>
     </ul>
     <p>Full detail in <a href="#formula">Section 4 — Formula Manager</a>.</p>
@@ -398,7 +414,7 @@
 <!-- S3 -->
 <div class="stage-card" data-stage="Stage 3">
     <h3 id="s3">Stage 3 — Process Data Manager (PDM) <span class="pill pill-go">Go</span> <span class="pill pill-py">Python</span></h3>
-    <p>Receives <span class="inline">BatchEvalRequest</span>s from Formula Manager and dispatches them to a fixed pool of Python workers bounded by a semaphore. Each batch is processed by one worker — the formula is exec()ed once, all items in the batch evaluated sequentially in the same namespace.</p>
+    <p>Receives <span class="inline">BatchEvalRequest</span>s from Formula Manager and dispatches them to a fixed pool of Python workers bounded by a semaphore. Each batch is processed by one worker — the formula is exec()ed once, all items in the batch evaluated sequentially in the same namespace. State reset on formula version mismatch is handled automatically.</p>
     <p>Full detail in <a href="#pdm">Section 8 — Process Data Manager</a>.</p>
 </div>
 
@@ -409,7 +425,7 @@
     <h4>Responsibilities</h4>
     <ul>
         <li>Read <span class="inline">last_signal</span> from SQLite for the ticker; skip if within cooldown window</li>
-        <li>POST to Discord webhook with structured embed (ticker, formula hash, timestamp, signal value)</li>
+        <li>POST to Discord webhook with structured embed (ticker, formula ID, version, timestamp, signal value)</li>
         <li>On Discord success: update <span class="inline">last_signal</span> for that ticker via SQLite Writer</li>
         <li>On Discord failure: retry with exponential backoff (max 3 retries); if still failing, emit to <strong>error channel</strong> (separate webhook) — never drop silently</li>
         <li>Error results from PDM (Python timeout, crash): route to error channel, not signal channel</li>
@@ -622,33 +638,40 @@
 <h3 id="contract">Formula Contract &amp; Formula Storage</h3>
 
 <h4>Formula Storage — formulas/ Directory</h4>
-<p>Formulas live in a <span class="inline">formulas/</span> directory mounted at container runtime. One <span class="inline">.py</span> file per ticker: <span class="inline">AAPL.py</span>, <span class="inline">TSLA.py</span>, etc. Go reads the file content at evaluation time, computes its SHA-256 hash, and sends both in the <span class="inline">EvalRequest</span>. A file-watcher goroutine detects changes and invalidates the cached hash for that ticker — triggering <span class="inline">prev_state</span> reset on the next evaluation. Formula updates take effect without container restart.</p>
+<p>Formulas live in a <span class="inline">formulas/</span> directory mounted at container runtime. One <span class="inline">.py</span> file per ticker: <span class="inline">AAPL.py</span>, <span class="inline">TSLA.py</span>, etc. Each formula file declares a <span class="inline">FormulaMeta</span> with an ID and integer Version. Go reads the file content at evaluation time, extracts the meta, and sends both in the <span class="inline">EvalRequest</span>. A file-watcher goroutine detects changes and invalidates the cached entry for that ticker — triggering <span class="inline">prev_state</span> reset on the next evaluation when the version changes. Formula updates take effect without container restart.</p>
 
 <pre><span class="c">// Mount at runtime: -v ./formulas:/app/formulas</span>
-<span class="c">// Go reads formula per evaluation:</span>
-code, _ := os.<span class="f">ReadFile</span>(<span class="f">fmt</span>.<span class="f">Sprintf</span>(<span class="s">"/app/formulas/%s.py"</span>, ticker))
-hash    := <span class="f">sha256hex</span>(code)
-<span class="c">// Send code+hash in EvalRequest; Python exec()s it in isolated namespace</span></pre>
+<span class="c">// Each formula file declares its meta:</span>
+<span class="k">type</span> <span class="t">FormulaMeta</span> <span class="k">struct</span> {
+    ID      <span class="t">string</span>   <span class="c">// e.g. "rsi-mean-revert"</span>
+    Version <span class="t">int</span>      <span class="c">// incremented on each change</span>
+}
+<span class="c">// Go reads formula per evaluation, extracts meta for state invalidation</span></pre>
 
 <table>
     <tr><th>Approach</th><th>Hot-reload</th><th>Versioning</th><th>Verdict</th></tr>
-    <tr><td>Mounted <code>formulas/</code> dir</td><td>✓ file watcher</td><td>via Git on host</td><td>✓ <strong>Chosen</strong></td></tr>
+    <tr><td>Mounted <code>formulas/</code> dir</td><td>✓ file watcher</td><td>FormulaID + Version</td><td>✓ <strong>Chosen</strong></td></tr>
     <tr><td>Inline in config.json</td><td>restart required</td><td>manual</td><td>✗ messy for long formulas</td></tr>
     <tr><td>SQLite <code>formulas</code> table</td><td>✓ poll-based</td><td>row versioning</td><td>viable alternative</td></tr>
 </table>
+
+<p>State reset becomes simple version comparison:</p>
+<pre><span class="k">if</span> prev.Version != current.Version {
+    prevState = <span class="ok">nil</span>
+}</pre>
 
 <p>Every AI-generated formula must expose a single entry point function. Go and Python agree on this interface over JSON via stdin/stdout.</p>
 
 <h4>Request Schema (Go → Python stdin)</h4>
 <pre>{
   <span class="s">"ticker"</span>:       <span class="s">"AAPL"</span>,
-  <span class="s">"formula_hash"</span>: <span class="s">"sha256:abc123"</span>,    <span class="c">// used for state invalidation</span>
+  <span class="s">"formula_meta"</span>: { <span class="s">"id"</span>: <span class="s">"rsi-mean-revert"</span>, <span class="s">"version"</span>: 3 },  <span class="c">// used for state invalidation</span>
   <span class="s">"formula_code"</span>: <span class="s">"def evaluate(df, prev): ..."</span>,
   <span class="s">"data"</span>: [
     { <span class="s">"t"</span>: 1718000000, <span class="s">"o"</span>: 180.1, <span class="s">"h"</span>: 181.0, <span class="s">"l"</span>: 179.5, <span class="s">"c"</span>: 180.8, <span class="s">"v"</span>: 123456 },
     ...
   ],
-  <span class="s">"prev_state"</span>: { ... }              <span class="c">// {} on first call or after hash mismatch</span>
+  <span class="s">"prev_state"</span>: { ... }              <span class="c">// {} on first call or after version mismatch</span>
 }</pre>
 
 <h4>Response Schema (Python stdout → Go)</h4>
@@ -681,17 +704,17 @@ hash    := <span class="f">sha256hex</span>(code)
     <span class="k">return</span> (<span class="n">1</span> <span class="k">if</span> last_close &gt; ema <span class="k">else</span> <span class="n">0</span>), {<span class="s">"ema"</span>: ema}</pre>
 
 <h4>State Invalidation on Formula Change</h4>
-<p>Go stores the formula hash alongside <span class="inline">prevState</span>. On each evaluation, if the formula hash in the <span class="inline">EvalRequest</span> differs from the stored hash, Go sends <span class="inline">prev_state: {}</span> and resets the stored hash. The formula detects the empty state and falls back to full computation. No stale state leaks across formula versions.</p>
+<p>Go stores the <span class="inline">FormulaMeta.Version</span> alongside <span class="inline">prevState</span>. On each evaluation, if the version in the <span class="inline">EvalRequest</span> differs from the stored version, Go sends <span class="inline">prev_state: {}</span> and resets the stored version. The formula detects the empty state and falls back to full computation. No stale state leaks across formula versions.</p>
 
 <h3 id="isolation">Formula Isolation</h3>
 <p>Each formula is <span class="inline">exec()</span>-ed into a <strong>fresh isolated namespace dict</strong> on every invocation. This prevents symbol leakage between consecutive stock evaluations inside the same subprocess.</p>
 <pre><span class="k">def</span> <span class="f">_run_job</span>(job):
     ticker = job[<span class="s">"ticker"</span>]
-    formula_hash = job[<span class="s">"formula_hash"</span>]
+    formula_meta = job[<span class="s">"formula_meta"</span>]
 
-    <span class="c"># State invalidation on formula change</span>
+    <span class="c"># State invalidation on formula version change</span>
     stored = _state_store.<span class="f">get</span>(ticker, {})
-    <span class="k">if</span> stored.<span class="f">get</span>(<span class="s">"_hash"</span>) != formula_hash:
+    <span class="k">if</span> stored.<span class="f">get</span>(<span class="s">"_version"</span>) != formula_meta[<span class="s">"version"</span>]:
         stored = {}
 
     prev_state = stored.<span class="f">get</span>(<span class="s">"state"</span>, {})
@@ -704,7 +727,7 @@ hash    := <span class="f">sha256hex</span>(code)
     <span class="f">exec</span>(job[<span class="s">"formula_code"</span>], ns)
     signal, new_state = ns[<span class="s">"evaluate"</span>](df, prev_state)
 
-    _state_store[ticker] = {<span class="s">"_hash"</span>: formula_hash, <span class="s">"state"</span>: new_state}
+    _state_store[ticker] = {<span class="s">"_version"</span>: formula_meta[<span class="s">"version"</span>], <span class="s">"state"</span>: new_state}
     <span class="k">return</span> {<span class="s">"signal"</span>: <span class="f">int</span>(signal), <span class="s">"new_state"</span>: new_state, <span class="s">"error"</span>: <span class="ok">None</span>}</pre>
 
 <div class="callout note-warn">
@@ -735,18 +758,20 @@ hash    := <span class="f">sha256hex</span>(code)
 
 <span class="c">-- Last time a signal was sent per ticker (deduplication)</span>
 <span class="k">CREATE TABLE</span> last_signal (
-    ticker       <span class="t">TEXT</span>    <span class="k">PRIMARY KEY</span>,
-    triggered_at <span class="t">INTEGER</span> <span class="k">NOT NULL</span>,
-    formula_hash <span class="t">TEXT</span>
+    ticker         <span class="t">TEXT</span>    <span class="k">PRIMARY KEY</span>,
+    triggered_at   <span class="t">INTEGER</span> <span class="k">NOT NULL</span>,
+    formula_id     <span class="t">TEXT</span>    <span class="k">NOT NULL</span>,
+    formula_version <span class="t">INTEGER</span> <span class="k">NOT NULL</span>
 );
 
 <span class="c">-- Audit log of all signals ever fired (optional, recommended)</span>
 <span class="k">CREATE TABLE</span> signal_log (
-    id           <span class="t">INTEGER</span> <span class="k">PRIMARY KEY AUTOINCREMENT</span>,
-    ticker       <span class="t">TEXT</span>    <span class="k">NOT NULL</span>,
-    triggered_at <span class="t">INTEGER</span> <span class="k">NOT NULL</span>,
-    formula_hash <span class="t">TEXT</span>,
-    signal_value <span class="t">INTEGER</span>
+    id             <span class="t">INTEGER</span>  <span class="k">PRIMARY KEY AUTOINCREMENT</span>,
+    ticker         <span class="t">TEXT</span>     <span class="k">NOT NULL</span>,
+    triggered_at   <span class="t">INTEGER</span>  <span class="k">NOT NULL</span>,
+    formula_id     <span class="t">TEXT</span>     <span class="k">NOT NULL</span>,
+    formula_version <span class="t">INTEGER</span> <span class="k">NOT NULL</span>,
+    signal_value   <span class="t">INTEGER</span>
 );
 
 <span class="c">-- Bootstrap state tracking</span>
@@ -891,11 +916,12 @@ workCh  chan EvalRequest</pre>
 <span class="c">-- If (now - triggered_at) &lt; cooldown → skip</span>
 <span class="c">-- If triggered_at is null or expired → fire and upsert</span>
 
-<span class="k">INSERT INTO</span> last_signal (ticker, triggered_at, formula_hash)
-<span class="k">VALUES</span> (?, <span class="f">unixepoch</span>(<span class="s">'now'</span>), ?)
+<span class="k">INSERT INTO</span> last_signal (ticker, triggered_at, formula_id, formula_version)
+<span class="k">VALUES</span> (?, <span class="f">unixepoch</span>(<span class="s">'now'</span>), ?, ?)
 <span class="k">ON CONFLICT</span>(ticker) <span class="k">DO UPDATE SET</span>
     triggered_at = excluded.triggered_at,
-    formula_hash = excluded.formula_hash;</pre>
+    formula_id = excluded.formula_id,
+    formula_version = excluded.formula_version;</pre>
 
 <table>
     <tr><th>Config Level</th><th>Key</th><th>Default</th></tr>
@@ -1058,11 +1084,18 @@ DISCORD_ERROR_WEBHOOK=https://...</pre>
     │
     ├─ 7. [ All tickers ready ]
     │
-    ├─ 8. Start Stage 4 Post Processor goroutine
+    ├─ 8. Start Engine Monitor
+    │       Starts status collector
+    │       Exposes /health endpoint
+    │       Exposes /status endpoint
     │
-    ├─ 9. Start Stage 2 Sync &amp; Decision goroutine
+    ├─ 9. Start Error Manager goroutine
     │
-    └─ 10. Start Stage 1 API Puller (arms hourly timer)
+    ├─ 10. Start Stage 4 Post Processor goroutine
+    │
+    ├─ 11. Start Stage 2 Sync &amp; Decision goroutine
+    │
+    └─ 12. Start Stage 1 API Puller (arms hourly timer)
              System is now live.</div>
 
 
@@ -1137,8 +1170,14 @@ DISCORD_ERROR_WEBHOOK=https://...</pre>
     TickTime    <span class="t">time.Time</span>
     Data        []<span class="t">OHLCV</span>
     FormulaCode <span class="t">string</span>
-    FormulaHash <span class="t">string</span>
+    FormulaMeta <span class="t">FormulaMeta</span>
     PrevState   json.<span class="t">RawMessage</span>
+}
+
+<span class="c">// ── Shared: Formula Metadata ───────────────────────────────────</span>
+<span class="k">type</span> <span class="t">FormulaMeta</span> <span class="k">struct</span> {
+    ID      <span class="t">string</span>
+    Version <span class="t">int</span>
 }
 
 <span class="c">// ── Stage 3 outputs ───────────────────────────────────────────</span>
@@ -1146,10 +1185,19 @@ DISCORD_ERROR_WEBHOOK=https://...</pre>
     Ticker      <span class="t">string</span>
     TickTime    <span class="t">time.Time</span>
     Signal      <span class="t">int</span>             <span class="c">// 1 = trigger, 0 = hold</span>
-    FormulaHash <span class="t">string</span>
+    FormulaMeta <span class="t">FormulaMeta</span>
     NewState    json.<span class="t">RawMessage</span>
     Err         <span class="t">error</span>
     EvalDuration <span class="t">time.Duration</span>
+}</pre>
+
+<span class="c">// ── Engine Monitor ────────────────────────────────────────────</span>
+<span class="k">type</span> <span class="t">StatusUpdate</span> <span class="k">struct</span> {
+    Manager       <span class="t">string</span>
+    Healthy       <span class="t">bool</span>
+    QueueDepth    <span class="t">int</span>
+    ErrorCount    <span class="t">int</span>
+    LastHeartbeat <span class="t">time.Time</span>
 }</pre>
 
 <hr>
