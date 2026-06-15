@@ -7,4 +7,7 @@ require (
 	go.uber.org/zap v1.28.0
 )
 
-require go.uber.org/multierr v1.10.0 // indirect
+require (
+	github.com/mattn/go-sqlite3 v1.14.45
+	go.uber.org/multierr v1.10.0 // indirect
+)
