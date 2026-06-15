@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -30,7 +31,10 @@ func main() {
 	logx.Infof("Tickers: %v", cfg.Tickers)
 
 	// Initialize SQLite writer (M3)
-	writer, err := data.NewWriter(cfg.DBPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	writer, err := data.NewWriter(ctx, cfg.DBPath)
 	if err != nil {
 		logx.Fatalf("Failed to initialize SQLite writer: %v", err)
 	}
