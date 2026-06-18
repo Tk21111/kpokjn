@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"kpokjn/internal/config"
@@ -27,13 +28,11 @@ type Bar struct {
 	Volume    int64     `json:"v"`
 }
 
-// BarsResponse is the Alpaca bars API response shape.
 type BarsResponse struct {
 	Bars          []Bar  `json:"bars"`
 	NextPageToken string `json:"next_page_token"`
 }
 
-// NewClient creates a new Alpaca API client.
 func NewClient(cfg *config.Config) *Client {
 	return &Client{
 		cfg: cfg,
@@ -50,69 +49,55 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	return c.client.Do(req)
 }
 
-// GetBars fetches daily bars for a ticker (legacy method).
-func (c *Client) GetBars(ticker string, limit int) ([]Bar, error) {
-	url := fmt.Sprintf("%s/stocks/%s/bars?timeframe=1Day&adjustment=all&limit=%d&start=2023-01-01T00:00:00Z",
-		c.cfg.AlpacaBaseURL, ticker, limit)
-
-	logx.Debugf("GET %s", url)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-
-	resp, err := c.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("executing request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		logx.Errorf("Alpaca API returned status %d: %s", resp.StatusCode, string(body))
-		return nil, fmt.Errorf("alpaca API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result BarsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
-	}
-
-	logx.Debugf("Decoded %d bars for %s", len(result.Bars), ticker)
-	return result.Bars, nil
-}
-
 // GetBarsPaged fetches a page of hourly bars ending before `end`.
 // Returns the bars and the next page token (empty if no more pages).
-func (c *Client) GetBarsPaged(ticker, timeframe string, end time.Time, limit int) ([]Bar, string, error) {
-	url := fmt.Sprintf("%s/stocks/%s/bars?timeframe=%s&adjustment=all&limit=%d&end=%s",
-		c.cfg.AlpacaBaseURL, ticker, timeframe, limit, end.Format(time.RFC3339))
+func (c *Client) GetAllBars(ticker, timeframe string, start time.Time, end time.Time, limit int) ([]Bar, error) {
+	var allBars []Bar
+	var pageToken string
 
-	logx.Debugf("GET %s", url)
+	for {
+		urlStr := fmt.Sprintf("%s/stocks/%s/bars?timeframe=%s&adjustment=all&limit=%d&start=%s&end=%s",
+			c.cfg.AlpacaBaseURL, ticker, timeframe, limit, start.Format(time.RFC3339), end.Format(time.RFC3339))
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, "", fmt.Errorf("creating request: %w", err)
+		if pageToken != "" {
+			urlStr = fmt.Sprintf("%s&page_token=%s", urlStr, url.QueryEscape(pageToken))
+		}
+
+		logx.Debugf("GET %s", urlStr)
+		req, err := http.NewRequest("GET", urlStr, nil)
+		if err != nil {
+			return nil, fmt.Errorf("creating request: %w", err)
+		}
+
+		resp, err := c.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("executing request: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			logx.Errorf("Alpaca API returned status %d: %s", resp.StatusCode, string(body))
+			return nil, fmt.Errorf("alpaca API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result BarsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("decoding response: %w", err)
+		}
+
+		resp.Body.Close()
+
+		allBars = append(allBars, result.Bars...)
+		logx.Debugf("Fetched %d bars for %s. Total so far: %d", len(result.Bars), ticker, len(allBars))
+
+		pageToken = result.NextPageToken
+		if pageToken == "" {
+			break
+		}
 	}
 
-	resp, err := c.Do(req)
-	if err != nil {
-		return nil, "", fmt.Errorf("executing request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		logx.Errorf("Alpaca API returned status %d: %s", resp.StatusCode, string(body))
-		return nil, "", fmt.Errorf("alpaca API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result BarsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, "", fmt.Errorf("decoding response: %w", err)
-	}
-
-	logx.Debugf("Decoded %d bars for %s (next_token=%q)", len(result.Bars), ticker, result.NextPageToken)
-	return result.Bars, result.NextPageToken, nil
+	logx.Debugf("Finished fetching all %d bars for %s", len(allBars), ticker)
+	return allBars, nil
 }
