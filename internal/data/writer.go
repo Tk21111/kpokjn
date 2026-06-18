@@ -14,24 +14,24 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// WriteRequest is a request to execute a SQL statement via the single writer goroutine.
 type WriteRequest struct {
 	SQL   string
 	Args  []any
 	Reply chan error
 }
 
-// Writer is the single-writer goroutine manager for SQLite.
-// All writes go through the WriteRequest channel to avoid lock contention.
 type Writer struct {
-	db  *sql.DB
-	ctx context.Context
-	ch  chan WriteRequest
-	mu  sync.Mutex
+	gate   sync.RWMutex
+	closed bool
+
+	db          *sql.DB
+	ch          chan *WriteRequest
+	closeSignal chan struct{}
+	done        chan struct{}
 }
 
-// reed from path -> ping -> create writer -> apply sqlite config -> go run()
 func NewWriter(ctx context.Context, dbPath string) (*Writer, error) {
+
 	// Ensure parent directory exists
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -52,9 +52,11 @@ func NewWriter(ctx context.Context, dbPath string) (*Writer, error) {
 	}
 
 	w := &Writer{
-		db:  db,
-		ch:  make(chan WriteRequest, 256),
-		ctx: ctx,
+		db:          db,
+		ch:          make(chan *WriteRequest, 256),
+		closeSignal: make(chan struct{}),
+		done:        make(chan struct{}),
+		closed:      false,
 	}
 
 	// Apply schema migrations
@@ -70,59 +72,62 @@ func NewWriter(ctx context.Context, dbPath string) (*Writer, error) {
 	return w, nil
 }
 
-// Write sends a WriteRequest and blocks until the writer processes it.
-func (w *Writer) Write(sql string, args ...any) error {
-	req := WriteRequest{
+// submit write req without return err if fail
+func (w *Writer) Submit(sql string, args ...any) {
+	w.gate.RLock()
+	defer w.gate.RUnlock()
+	if w.closed {
+		return
+	}
+
+	w.ch <- &WriteRequest{
+		SQL:  sql,
+		Args: args,
+	}
+}
+
+func (w *Writer) Exec(sql string, args ...any) error {
+	w.gate.RLock()
+	defer w.gate.RUnlock()
+	if w.closed {
+		return fmt.Errorf("writer down")
+	}
+
+	reply := make(chan error, 1)
+	select {
+	case w.ch <- &WriteRequest{
 		SQL:   sql,
 		Args:  args,
-		Reply: make(chan error, 1),
+		Reply: reply,
+	}:
+		return <-reply
+	case <-w.closeSignal:
+		return fmt.Errorf("writer down")
 	}
-	w.ch <- req
-	return <-req.Reply
-}
-
-// QueryRow executes a read query (not through the writer goroutine).
-func (w *Writer) QueryRow(query string, args ...any) *sql.Row {
-	return w.db.QueryRow(query, args...)
-}
-
-// Query executes a read query (not through the writer goroutine).
-func (w *Writer) Query(query string, args ...any) (*sql.Rows, error) {
-	return w.db.Query(query, args...)
 }
 
 func (w *Writer) Close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.gate.Lock()
+	defer w.gate.Unlock()
 
-	go func() {
-		errClosed := fmt.Errorf("sqlite writer is shutting down")
-		for {
-			select {
-			case req, ok := <-w.ch:
-				if !ok {
-					return
-				}
-				// Reply to unblock the producer
-				if req.Reply != nil {
-					req.Reply <- errClosed
-				}
-			default:
-				return
-			}
-		}
-	}()
+	if w.closed {
+		return nil
+	}
+	w.closed = true
+	w.gate.Unlock()
 
+	close(w.closeSignal)
+	<-w.done
 	return w.db.Close()
 }
 
 func (w *Writer) run() {
+	defer close(w.done)
+
 	var tx *sql.Tx
 	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop() // ALWAYS stop tickers to prevent memory leaks
+	defer ticker.Stop()
 	txCount := 0
-
-	// Helper function to handle commits safely and reduce code duplication
 	commitTx := func(reason string) {
 		if tx != nil {
 			if err := tx.Commit(); err != nil {
@@ -135,59 +140,45 @@ func (w *Writer) run() {
 		}
 	}
 
-	for {
-		select {
-
-		// 1. Shutdown requested via context
-		case <-w.ctx.Done():
-			commitTx("final (shutdown)")
-			w.Close()
-			return
-
-		// 2. Time limit reached
-		case <-ticker.C:
-			commitTx("time limit")
-
-		// 3. New Data Arrived
-		case req, ok := <-w.ch:
-			if !ok {
-				// Channel was closed! Commit any pending work before exiting
-				commitTx("final (channel closed)")
+	handle := func(req *WriteRequest) {
+		if tx == nil {
+			var err error
+			tx, err = w.db.Begin()
+			if err != nil {
+				logx.Errorf("SQLite begin transaction error: %v", err)
+				req.Reply <- err
 				return
 			}
+			txCount = 0
+		}
+		_, err := tx.Exec(req.SQL, req.Args...)
+		if err != nil {
+			logx.Errorf("SQLite exec error: %s | %v | args=%v", req.SQL, err, req.Args)
+			req.Reply <- fmt.Errorf("exec %s: %w", truncate(req.SQL, 80), err)
+		} else {
+			txCount++
+			req.Reply <- nil
+		}
+		if txCount >= 100 {
+			commitTx("batch limit")
+		}
+	}
 
-			// Start a new transaction if one doesn't exist
-			if tx == nil {
-				var err error
-				tx, err = w.db.Begin()
-				if err != nil {
-					logx.Errorf("SQLite begin transaction error: %v", err)
-					req.Reply <- err
-					continue
-				}
-				txCount = 0
+	for {
+		select {
+		case <-w.closeSignal:
+			for req := range w.ch {
+				handle(req)
 			}
-
-			// Execute the current request BEFORE checking the batch limit
-			_, err := tx.Exec(req.SQL, req.Args...)
-			if err != nil {
-				logx.Errorf("SQLite exec error: %s | %v | args=%v", req.SQL, err, req.Args)
-				req.Reply <- fmt.Errorf("exec %s: %w", truncate(req.SQL, 80), err)
-			} else {
-				txCount++
-				req.Reply <- nil
-			}
-
-			// Hard 100 write limit
-			// We check this AFTER execution so the 100th item isn't discarded
-			if txCount >= 100 {
-				commitTx("batch limit")
-			}
+			commitTx("final (shutdown)")
+		case <-ticker.C:
+			commitTx("time limit")
+		case req := <-w.ch:
+			handle(req)
 		}
 	}
 }
 
-// migrate creates tables if they don't exist.
 func (w *Writer) migrate() error {
 	migrations := []string{
 		`CREATE TABLE IF NOT EXISTS ohlcv (
