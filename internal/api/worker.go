@@ -10,20 +10,9 @@ import (
 	"kpokjn/internal/data"
 )
 
-// OHLCV represents a single candlestick bar stored in SQLite.
+func FetchAndWrite(client *domain.Client, writer *data.Writer, cfg *domain.ApiJob, onPageToken func(string)) error {
 
-// NewWorker creates a new backfill worker.
-func NewWorker(cfg *domain.ApiJob, client *alpaca.Client, writer *data.Writer) *domain.Worker {
-	return &domain.Worker{
-		Cfg:    cfg,
-		Client: client,
-		Writer: writer,
-	}
-}
-
-func FetchAndWrite(client *alpaca.Client, writer *data.Writer, cfg *domain.ApiJob, onPageToken func(string)) error {
-
-	result, pageToken, error := client.GetAllBars(cfg.Ticker, cfg.TimeFrame, cfg.Start, cfg.End, cfg.Limit, cfg.NextPageToken)
+	result, pageToken, error := alpaca.GetAllBars(client, cfg)
 	if error != nil {
 		return fmt.Errorf("fetch api fail")
 	}

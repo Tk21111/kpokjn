@@ -8,15 +8,10 @@ import (
 	"net/url"
 	"time"
 
+	"kpokjn/domain"
 	"kpokjn/internal/config"
 	"kpokjn/internal/logx"
 )
-
-// Client wraps an HTTP client for the Alpaca API.
-type Client struct {
-	cfg    *config.Config
-	client *http.Client
-}
 
 // Bar represents a single OHLCV bar from Alpaca.
 type Bar struct {
@@ -33,36 +28,36 @@ type BarsResponse struct {
 	NextPageToken string `json:"next_page_token"`
 }
 
-func NewClient(cfg *config.Config) *Client {
-	return &Client{
-		cfg: cfg,
-		client: &http.Client{
+func NewClient(cfg *config.Config) *domain.Client {
+	return &domain.Client{
+		Cfg: cfg,
+		Client: &http.Client{
 			Timeout: 15 * time.Second,
 		},
 	}
 }
 
 // Do executes an HTTP request with Alpaca auth headers injected.
-func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	req.Header.Set("APCA-API-KEY-ID", c.cfg.AlpacaAPIKey)
-	req.Header.Set("APCA-API-SECRET-KEY", c.cfg.AlpacaSecret)
-	return c.client.Do(req)
+func Do(c *domain.Client, req *http.Request) (*http.Response, error) {
+	req.Header.Set("APCA-API-KEY-ID", c.Cfg.AlpacaAPIKey)
+	req.Header.Set("APCA-API-SECRET-KEY", c.Cfg.AlpacaSecret)
+	return c.Client.Do(req)
 }
 
 // GetBarsPaged fetches a page of hourly bars ending before `end`.
 // Returns the bars and the next page token (empty if no more pages).
-func (c *Client) GetAllBars(ticker, timeframe string, start time.Time, end time.Time, limit int, pageToken string) ([]Bar, string, error) {
+func GetAllBars(c *domain.Client, apiJob *domain.ApiJob) ([]Bar, string, error) {
 	var allBars []Bar
 
 	urlStr := fmt.Sprintf("%s/stocks/%s/bars?timeframe=%s&adjustment=all&limit=%d&start=%s",
-		c.cfg.AlpacaBaseURL, ticker, timeframe, limit, start.Format(time.RFC3339))
+		c.Cfg.AlpacaBaseURL, apiJob.Ticker, apiJob.TimeFrame, apiJob.Limit, apiJob.Start.Format(time.RFC3339))
 
-	if !end.IsZero() {
-		urlStr = fmt.Sprintf("%s&end=%s", urlStr, end.Format(time.RFC3339))
+	if !apiJob.End.IsZero() {
+		urlStr = fmt.Sprintf("%s&end=%s", urlStr, apiJob.End.Format(time.RFC3339))
 	}
 
-	if pageToken != "" {
-		urlStr = fmt.Sprintf("%s&page_token=%s", urlStr, url.QueryEscape(pageToken))
+	if apiJob.NextPageToken != "" {
+		urlStr = fmt.Sprintf("%s&page_token=%s", urlStr, url.QueryEscape(apiJob.NextPageToken))
 	}
 
 	logx.Debugf("GET %s", urlStr)
@@ -71,7 +66,7 @@ func (c *Client) GetAllBars(ticker, timeframe string, start time.Time, end time.
 		return nil, "", fmt.Errorf("creating request: %w", err)
 	}
 
-	resp, err := c.Do(req)
+	resp, err := Do(c, req)
 	if err != nil {
 		return nil, "", fmt.Errorf("executing request: %w", err)
 	}
@@ -92,8 +87,8 @@ func (c *Client) GetAllBars(ticker, timeframe string, start time.Time, end time.
 	resp.Body.Close()
 
 	allBars = append(allBars, result.Bars...)
-	logx.Debugf("Fetched %d bars for %s. Total so far: %d", len(result.Bars), ticker, len(allBars))
+	logx.Debugf("Fetched %d bars for %s. Total so far: %d", len(result.Bars), apiJob.Ticker, len(allBars))
 
-	logx.Debugf("Finished fetching all %d bars for %s", len(allBars), ticker)
+	logx.Debugf("Finished fetching all %d bars for %s", len(allBars), apiJob.Ticker)
 	return allBars, result.NextPageToken, nil
 }

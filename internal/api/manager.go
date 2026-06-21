@@ -1,36 +1,62 @@
 package api
 
 import (
+	"context"
 	"kpokjn/domain"
-	"kpokjn/internal/alpaca"
+	"sync"
 	"time"
+
+	"golang.org/x/text/cases"
 )
 
-func NewApiManager(client *alpaca.Client, ratelimit int) *domain.ApiManager {
-	return &domain.ApiManager{
+type ApiProducer struct {
+	Client    *domain.Client
+	RateLimit int // per sec
+}
+
+type ApiQueue struct {
+	ApiJob         *domain.ApiJob
+	timeStartQueue time.Time
+}
+
+type ApiManager struct {
+	gate sync.RWMutex
+	Queue []*ApiQueue
+	
+	ctx   context.Context
+}
+
+func NewApiProducer(client *domain.Client, ratelimit int) *ApiProducer {
+	return &ApiProducer{
 		Client:    client,
 		RateLimit: ratelimit,
 	}
 }
 
-var apiCh = make(chan *domain.ApiJob, 1000)
+func (APM *ApiManager) Submit(workerCfg *domain.ApiJob) {
 
-func (AP *ApiManager) Submit(workerCfg *domain.ApiJob) {
-	AP.gate.RLock()
-	defer AP.gate.RUnlock()
-	if AP.closed {
-		return
+	queue := &ApiQueue{
+		ApiJob:         workerCfg,
+		timeStartQueue: time.Now(),
 	}
 
-	select {
-	case apiCh <- workerCfg:
-		return
-	case <-AP.closeSignal:
-		return
+	APM.gate.Lock()
+	defer APM.gate.Unlock()
+
+	
+}
+
+func (APM *ApiManager) Run() {
+
+	//read for queue and send work 
+	for {
+		select {
+			case AP
+		}
 	}
 }
 
-func (Ap *ApiManager) run() {
+func (Ap *ApiProducer) run() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	for {
 		<-ticker.C

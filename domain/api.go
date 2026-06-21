@@ -1,19 +1,14 @@
 package domain
 
 import (
-	"kpokjn/internal/alpaca"
-	"sync"
+	"kpokjn/internal/config"
+	"net/http"
 	"time"
 )
 
-type ApiManager struct {
-	Gate        sync.RWMutex
-	Closed      bool
-	CloseSignal chan struct{}
-
-	Client    *alpaca.Client
-	RateLimit int // per sec
-	ApiCh     chan *ApiJob
+type Client struct {
+	Cfg    *config.Config
+	Client *http.Client
 }
 
 type ApiJob struct {
@@ -23,4 +18,5 @@ type ApiJob struct {
 	TimeFrame     string
 	Limit         int
 	NextPageToken string
+	Priority      int
 }
