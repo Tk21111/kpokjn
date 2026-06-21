@@ -51,53 +51,49 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 
 // GetBarsPaged fetches a page of hourly bars ending before `end`.
 // Returns the bars and the next page token (empty if no more pages).
-func (c *Client) GetAllBars(ticker, timeframe string, start time.Time, end time.Time, limit int) ([]Bar, error) {
+func (c *Client) GetAllBars(ticker, timeframe string, start time.Time, end time.Time, limit int, pageToken string) ([]Bar, string, error) {
 	var allBars []Bar
-	var pageToken string
 
-	for {
-		urlStr := fmt.Sprintf("%s/stocks/%s/bars?timeframe=%s&adjustment=all&limit=%d&start=%s&end=%s",
-			c.cfg.AlpacaBaseURL, ticker, timeframe, limit, start.Format(time.RFC3339), end.Format(time.RFC3339))
+	urlStr := fmt.Sprintf("%s/stocks/%s/bars?timeframe=%s&adjustment=all&limit=%d&start=%s",
+		c.cfg.AlpacaBaseURL, ticker, timeframe, limit, start.Format(time.RFC3339))
 
-		if pageToken != "" {
-			urlStr = fmt.Sprintf("%s&page_token=%s", urlStr, url.QueryEscape(pageToken))
-		}
-
-		logx.Debugf("GET %s", urlStr)
-		req, err := http.NewRequest("GET", urlStr, nil)
-		if err != nil {
-			return nil, fmt.Errorf("creating request: %w", err)
-		}
-
-		resp, err := c.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("executing request: %w", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			logx.Errorf("Alpaca API returned status %d: %s", resp.StatusCode, string(body))
-			return nil, fmt.Errorf("alpaca API returned status %d: %s", resp.StatusCode, string(body))
-		}
-
-		var result BarsResponse
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			resp.Body.Close()
-			return nil, fmt.Errorf("decoding response: %w", err)
-		}
-
-		resp.Body.Close()
-
-		allBars = append(allBars, result.Bars...)
-		logx.Debugf("Fetched %d bars for %s. Total so far: %d", len(result.Bars), ticker, len(allBars))
-
-		pageToken = result.NextPageToken
-		if pageToken == "" {
-			break
-		}
+	if !end.IsZero() {
+		urlStr = fmt.Sprintf("%s&end=%s", urlStr, end.Format(time.RFC3339))
 	}
 
+	if pageToken != "" {
+		urlStr = fmt.Sprintf("%s&page_token=%s", urlStr, url.QueryEscape(pageToken))
+	}
+
+	logx.Debugf("GET %s", urlStr)
+	req, err := http.NewRequest("GET", urlStr, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("executing request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		logx.Errorf("Alpaca API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, "", fmt.Errorf("alpaca API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result BarsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		resp.Body.Close()
+		return nil, "", fmt.Errorf("decoding response: %w", err)
+	}
+
+	resp.Body.Close()
+
+	allBars = append(allBars, result.Bars...)
+	logx.Debugf("Fetched %d bars for %s. Total so far: %d", len(result.Bars), ticker, len(allBars))
+
 	logx.Debugf("Finished fetching all %d bars for %s", len(allBars), ticker)
-	return allBars, nil
+	return allBars, result.NextPageToken, nil
 }

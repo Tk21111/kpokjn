@@ -222,6 +222,14 @@ func (w *Writer) migrate() error {
 	return nil
 }
 
+func (w *Writer) QueryRow(query string, args ...any) *sql.Row {
+	return w.db.QueryRow(query, args...)
+}
+
+func (w *Writer) Query(query string, args ...any) (*sql.Rows, error) {
+	return w.db.Query(query, args...)
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
