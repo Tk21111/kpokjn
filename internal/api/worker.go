@@ -10,7 +10,7 @@ import (
 	"kpokjn/internal/data"
 )
 
-func FetchAndWrite(client *domain.Client, writer *data.Writer, cfg *domain.ApiJob, onPageToken func(string)) error {
+func FetchAndWrite(client *domain.Client, writer *data.Writer, cfg *domain.ApiJob, onPageToken func(*domain.ApiJob, string)) error {
 
 	result, pageToken, error := alpaca.GetAllBars(client, cfg)
 	if error != nil {
@@ -35,7 +35,7 @@ func FetchAndWrite(client *domain.Client, writer *data.Writer, cfg *domain.ApiJo
 	}
 
 	if pageToken != "" {
-		onPageToken(pageToken)
+		onPageToken(cfg, pageToken)
 	}
 
 	return nil
