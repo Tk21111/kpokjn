@@ -96,7 +96,6 @@ func (APM *ApiManager) Run() {
 	for {
 		<-agingTicker.C
 		APM.age()
-
 	}
 }
 

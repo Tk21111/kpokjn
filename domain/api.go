@@ -12,6 +12,8 @@ type Client struct {
 }
 
 type ApiJob struct {
+	ID            string
+	Feedback      chan<- *ApiResult
 	Start         time.Time
 	End           time.Time
 	Ticker        string
@@ -19,4 +21,18 @@ type ApiJob struct {
 	Limit         int
 	NextPageToken string
 	Priority      int
+}
+type JobResult int
+
+const (
+	Finish JobResult = iota
+	Err
+	Continous
+)
+
+type ApiResult struct {
+	ID     string
+	Data   []any
+	Status JobResult
+	Err    any
 }
