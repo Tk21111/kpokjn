@@ -21,8 +21,7 @@ type WriteRequest struct {
 }
 
 type Writer struct {
-	gate   sync.RWMutex
-	closed bool
+	gate sync.RWMutex
 
 	db          *sql.DB
 	ch          chan *WriteRequest
@@ -30,12 +29,21 @@ type Writer struct {
 	done        chan struct{}
 }
 
-func NewWriter(ctx context.Context, dbPath string) (*Writer, error) {
+func NewWriter(ctx context.Context, dbName string) (*Writer, error) {
+
+	projectDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("could not get working directory: %w", err)
+	}
+
+	// 2. Construct the path to the 'data' folder
+	dataDir := filepath.Join(projectDir, "data")
+
+	dbPath := filepath.Join(dataDir, dbName)
 
 	// Ensure parent directory exists
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create db directory %s: %w", dir, err)
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return nil, fmt.Errorf("create db directory %s: %w", dataDir, err)
 	}
 
 	logx.Infof("Opening SQLite database at %s", dbPath)
@@ -56,7 +64,6 @@ func NewWriter(ctx context.Context, dbPath string) (*Writer, error) {
 		ch:          make(chan *WriteRequest, 256),
 		closeSignal: make(chan struct{}),
 		done:        make(chan struct{}),
-		closed:      false,
 	}
 
 	// Apply schema migrations
@@ -66,7 +73,7 @@ func NewWriter(ctx context.Context, dbPath string) (*Writer, error) {
 	}
 
 	// Start the single writer goroutine
-	go w.run()
+	go w.Run()
 
 	logx.Info("SQLite writer started")
 	return w, nil
@@ -74,12 +81,8 @@ func NewWriter(ctx context.Context, dbPath string) (*Writer, error) {
 
 // submit write req without return err if fail
 func (w *Writer) Submit(sql string, args ...any) {
-	w.gate.RLock()
-	defer w.gate.RUnlock()
-	if w.closed {
-		return
-	}
 
+	fmt.Println("wwwwwwwwwwwwwwwwwwwwwwwwwwwwww")
 	w.ch <- &WriteRequest{
 		SQL:  sql,
 		Args: args,
@@ -87,11 +90,6 @@ func (w *Writer) Submit(sql string, args ...any) {
 }
 
 func (w *Writer) Exec(sql string, args ...any) error {
-	w.gate.RLock()
-	defer w.gate.RUnlock()
-	if w.closed {
-		return fmt.Errorf("writer down")
-	}
 
 	reply := make(chan error, 1)
 	select {
@@ -107,25 +105,17 @@ func (w *Writer) Exec(sql string, args ...any) error {
 }
 
 func (w *Writer) Close() error {
-	w.gate.Lock()
-	defer w.gate.Unlock()
-
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	w.gate.Unlock()
 
 	close(w.closeSignal)
 	<-w.done
 	return w.db.Close()
 }
 
-func (w *Writer) run() {
+func (w *Writer) Run() {
 	defer close(w.done)
 
 	var tx *sql.Tx
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	txCount := 0
 	commitTx := func(reason string) {
@@ -152,6 +142,7 @@ func (w *Writer) run() {
 			txCount = 0
 		}
 		_, err := tx.Exec(req.SQL, req.Args...)
+		fmt.Println(txCount)
 		if err != nil {
 			logx.Errorf("SQLite exec error: %s | %v | args=%v", req.SQL, err, req.Args)
 			req.Reply <- fmt.Errorf("exec %s: %w", truncate(req.SQL, 80), err)
@@ -159,7 +150,7 @@ func (w *Writer) run() {
 			txCount++
 			req.Reply <- nil
 		}
-		if txCount >= 100 {
+		if txCount >= 10 {
 			commitTx("batch limit")
 		}
 	}

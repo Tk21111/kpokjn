@@ -50,6 +50,23 @@ func (q *pq) Pop() any {
 	return item
 }
 
+func NewApiManager(ctx context.Context, writer *data.Writer, rate int) *ApiManager {
+	// Initialize an empty priority queue
+	q := make(pq, 0)
+
+	// Optional: container/heap doesn't strictly require heap.Init() for an empty slice,
+	// but it's safe to call if you ever decide to pre-populate 'q' in the future.
+	heap.Init(&q)
+
+	return &ApiManager{
+		Queue:       &q,
+		Writer:      writer,
+		Rate:        rate,
+		dispatchJob: make(chan *domain.ApiJob, 100), // Added a buffer; adjust size to your needs or remove the 100 for unbuffered
+		ctx:         ctx,
+	}
+}
+
 func (AMP *ApiManager) Submit(job *domain.ApiJob, priority int) {
 	item := &ApiQueue{
 		Job:            job,
@@ -71,20 +88,6 @@ func (AMP *ApiManager) Pop() *domain.ApiJob {
 	AMP.mu.Unlock()
 
 	return nil
-}
-
-func (APM *ApiManager) NewApiConsumer(client *domain.Client, ratelimit int) *ApiConsumer {
-	return &ApiConsumer{
-		Client:    client,
-		RateLimit: ratelimit,
-		onPageToken: func(job *domain.ApiJob, s string) {
-			job.NextPageToken = s
-			APM.Submit(job, 5)
-		},
-		popFunc: func() *domain.ApiJob {
-			return APM.Pop()
-		},
-	}
 }
 
 // watch dog

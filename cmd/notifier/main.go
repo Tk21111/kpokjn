@@ -17,7 +17,7 @@ func main() {
 	// Initialize logger before anything else
 	_ = godotenv.Load(".env")
 
-	logx.Init("logs")
+	logx.Init()
 	defer logx.Logger().Sync()
 
 	logx.Infof("=== Trading Indicator Notifier starting ===")

@@ -1,6 +1,7 @@
 package logx
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -11,7 +12,16 @@ import (
 var logger *zap.SugaredLogger
 
 // Init sets up the global logger. All logs go to both stdout and the log file.
-func Init(logDir string) error {
+func Init() error {
+
+	projectDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("could not get working directory: %w", err)
+	}
+
+	// 2. Construct the path to the 'data' folder
+	logDir := filepath.Join(projectDir, "data")
+
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return err
 	}
@@ -60,11 +70,11 @@ func Logger() *zap.SugaredLogger {
 	return logger
 }
 
-func Debug(args ...interface{})                  { Logger().Debug(args...) }
-func Info(args ...interface{})                   { Logger().Info(args...) }
-func Warn(args ...interface{})                   { Logger().Warn(args...) }
-func Error(args ...interface{})                  { Logger().Error(args...) }
-func Fatal(args ...interface{})                  { Logger().Fatal(args...) }
+func Debug(args ...interface{})                   { Logger().Debug(args...) }
+func Info(args ...interface{})                    { Logger().Info(args...) }
+func Warn(args ...interface{})                    { Logger().Warn(args...) }
+func Error(args ...interface{})                   { Logger().Error(args...) }
+func Fatal(args ...interface{})                   { Logger().Fatal(args...) }
 func Debugf(template string, args ...interface{}) { Logger().Debugf(template, args...) }
 func Infof(template string, args ...interface{})  { Logger().Infof(template, args...) }
 func Warnf(template string, args ...interface{})  { Logger().Warnf(template, args...) }

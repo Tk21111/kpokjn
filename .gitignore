@@ -33,3 +33,5 @@ go.work.sum
 
 logs
 .cache/
+
+cmd/fetching

@@ -50,10 +50,10 @@ func GetAllBars(c *domain.Client, apiJob *domain.ApiJob) ([]Bar, string, error) 
 	var allBars []Bar
 
 	urlStr := fmt.Sprintf("%s/stocks/%s/bars?timeframe=%s&adjustment=all&limit=%d&start=%s",
-		c.Cfg.AlpacaBaseURL, apiJob.Ticker, apiJob.TimeFrame, apiJob.Limit, apiJob.Start.Format(time.RFC3339))
+		c.Cfg.AlpacaBaseURL, apiJob.Ticker, apiJob.TimeFrame, apiJob.Limit, apiJob.Start.UTC().Format(time.RFC3339))
 
 	if !apiJob.End.IsZero() {
-		urlStr = fmt.Sprintf("%s&end=%s", urlStr, apiJob.End.Format(time.RFC3339))
+		urlStr = fmt.Sprintf("%s&end=%s", urlStr, apiJob.End.UTC().Format(time.RFC3339))
 	}
 
 	if apiJob.NextPageToken != "" {

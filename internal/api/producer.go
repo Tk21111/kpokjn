@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"kpokjn/domain"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ func (APM *ApiManager) NewProducer() *ApiProducer {
 		Tickers: map[string]*domain.Ticker{
 			"TSLA": {
 				Ticker:    "TSLA",
-				LastFetch: time.Now().Add(-time.Minute * 60),
+				LastFetch: time.Now().Add(-time.Minute * 60 * 2),
 			},
 		},
 		MaxDuration: 60 * 5,
@@ -43,17 +44,19 @@ func (Ap *ApiProducer) Run() {
 				Ap.mu.Lock()
 				defer Ap.mu.Unlock()
 
+				fmt.Println("Checking stock")
 				for _, v := range Ap.Tickers {
 					if time.Since(v.LastFetch) > time.Duration(Ap.MaxDuration)*time.Second {
 						go Ap.SubmitFunc(
 							&domain.ApiJob{
 								ID:        v.Ticker,
 								Start:     v.LastFetch,
-								End:       time.Now(),
+								End:       time.Now().Add(-time.Minute * 60),
 								Ticker:    v.Ticker,
 								TimeFrame: "15min",
 								Priority:  1,
 								Feedback:  Ap.FeedbackCh,
+								Limit:     2000,
 							},
 						)
 					}
@@ -62,6 +65,7 @@ func (Ap *ApiProducer) Run() {
 		case result := <-Ap.FeedbackCh:
 			Ap.mu.Lock()
 			Ap.Tickers[result.ID].LastFetch = time.Now()
+
 			Ap.mu.Unlock()
 		}
 	}
