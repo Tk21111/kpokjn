@@ -23,7 +23,7 @@ func (APM *ApiManager) NewProducer() *ApiProducer {
 		Tickers: map[string]*domain.Ticker{
 			"TSLA": {
 				Ticker:    "TSLA",
-				LastFetch: time.Now().Add(-time.Minute * 60 * 2),
+				LastFetch: time.Now().Add(-time.Minute * 60 * 24 * 300),
 			},
 		},
 		MaxDuration: 60 * 5,
@@ -56,7 +56,7 @@ func (Ap *ApiProducer) Run() {
 								TimeFrame: "15min",
 								Priority:  1,
 								Feedback:  Ap.FeedbackCh,
-								Limit:     2000,
+								Limit:     200,
 							},
 						)
 					}

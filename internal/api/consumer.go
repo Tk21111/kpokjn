@@ -13,13 +13,15 @@ type ApiConsumer struct {
 
 	popFunc     func() *domain.ApiJob
 	onPageToken func(*domain.ApiJob, string)
-	RateLimit   int // per sec
+	PerSecLimit int // per sec
+	PerMinLimit int // per min
 }
 
-func (APM *ApiManager) NewConsumer(client *domain.Client, ratelimit int) *ApiConsumer {
+func (APM *ApiManager) NewConsumer(client *domain.Client, perSecLimit int, perMinLimit int) *ApiConsumer {
 	return &ApiConsumer{
-		Client:    client,
-		RateLimit: ratelimit,
+		Client:      client,
+		PerSecLimit: perSecLimit,
+		PerMinLimit: perMinLimit,
 		onPageToken: func(job *domain.ApiJob, s string) {
 			job.NextPageToken = s
 			APM.Submit(job, 5)
@@ -32,13 +34,34 @@ func (APM *ApiManager) NewConsumer(client *domain.Client, ratelimit int) *ApiCon
 }
 
 func (Ap *ApiConsumer) Run() {
-	ticker := time.NewTicker(time.Second / time.Duration(Ap.RateLimit))
+	perMinCount := 0
+	currentMinute := time.Now().Unix() / 60
+	tickerSec := time.NewTicker(time.Second / time.Duration(Ap.PerSecLimit))
+	defer tickerSec.Stop()
+
 	for {
-		<-ticker.C
+		<-tickerSec.C
+
+		nowMinute := time.Now().Unix() / 60
+		if nowMinute != currentMinute {
+			currentMinute = nowMinute
+			perMinCount = 0
+		}
+
+		if perMinCount >= Ap.PerMinLimit {
+			nextMinuteTime := time.Unix((currentMinute+1)*60, 0)
+			//block
+			time.Sleep(time.Until(nextMinuteTime))
+
+			currentMinute = time.Now().Unix() / 60
+			perMinCount = 0
+		}
+
 		job := Ap.popFunc()
 		if job != nil {
 			fmt.Printf("fetching job %v \n", job)
 			go FetchAndWrite(Ap.Client, Ap.Writer, job, Ap.onPageToken)
+			perMinCount++
 		}
 	}
 }

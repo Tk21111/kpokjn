@@ -8,6 +8,7 @@ import (
 	"kpokjn/domain"
 	"kpokjn/internal/alpaca"
 	"kpokjn/internal/data"
+	"kpokjn/internal/logx"
 )
 
 func FetchAndWrite(client *domain.Client, writer *data.Writer, cfg *domain.ApiJob, onPageToken func(*domain.ApiJob, string)) error {
@@ -29,12 +30,13 @@ func FetchAndWrite(client *domain.Client, writer *data.Writer, cfg *domain.ApiJo
 					close=excluded.close, 
 					volume=excluded.volume
 				`,
-				cfg.Ticker, bar.Timestamp, bar.Open, bar.Close, bar.Low, bar.Close, bar.Volume,
+				cfg.Ticker, bar.Timestamp, bar.Open, bar.High, bar.Low, bar.Close, bar.Volume,
 			)
 		}
 	}
 
 	if pageToken != "" {
+		logx.Info("Fetching nextPageToken")
 		onPageToken(cfg, pageToken)
 	}
 

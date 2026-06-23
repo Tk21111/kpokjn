@@ -82,7 +82,6 @@ func NewWriter(ctx context.Context, dbName string) (*Writer, error) {
 // submit write req without return err if fail
 func (w *Writer) Submit(sql string, args ...any) {
 
-	fmt.Println("wwwwwwwwwwwwwwwwwwwwwwwwwwwwww")
 	w.ch <- &WriteRequest{
 		SQL:  sql,
 		Args: args,
@@ -115,7 +114,7 @@ func (w *Writer) Run() {
 	defer close(w.done)
 
 	var tx *sql.Tx
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	txCount := 0
 	commitTx := func(reason string) {
@@ -136,21 +135,26 @@ func (w *Writer) Run() {
 			tx, err = w.db.Begin()
 			if err != nil {
 				logx.Errorf("SQLite begin transaction error: %v", err)
-				req.Reply <- err
+				if req.Reply != nil {
+					req.Reply <- err
+				}
 				return
 			}
 			txCount = 0
 		}
 		_, err := tx.Exec(req.SQL, req.Args...)
-		fmt.Println(txCount)
 		if err != nil {
 			logx.Errorf("SQLite exec error: %s | %v | args=%v", req.SQL, err, req.Args)
-			req.Reply <- fmt.Errorf("exec %s: %w", truncate(req.SQL, 80), err)
+			if req.Reply != nil {
+				req.Reply <- fmt.Errorf("exec %s: %w", truncate(req.SQL, 80), err)
+			}
 		} else {
 			txCount++
-			req.Reply <- nil
+			if req.Reply != nil {
+				req.Reply <- nil
+			}
 		}
-		if txCount >= 10 {
+		if txCount >= 100 {
 			commitTx("batch limit")
 		}
 	}
