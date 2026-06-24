@@ -16,3 +16,19 @@ type Ticker struct {
 	Ticker    string
 	LastFetch time.Time
 }
+
+type ProcessJob struct {
+	JobID     string
+	FormulaID string
+	Ticker    string
+	Data      []OHLCV
+	Params    map[string]any
+	Feedback  chan<- *JobResult
+}
+
+type JobResult struct {
+	JobID  string
+	Ticker string
+	Signal int
+	Err    error
+}

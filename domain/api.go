@@ -22,10 +22,10 @@ type ApiJob struct {
 	NextPageToken string
 	Priority      int
 }
-type JobResult int
+type Result int
 
 const (
-	Finish JobResult = iota
+	Finish Result = iota
 	Err
 	Continous
 )
