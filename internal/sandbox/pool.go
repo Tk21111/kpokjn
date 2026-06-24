@@ -27,6 +27,7 @@ type PoolManager struct {
 	inCh          chan domain.ProcessJob
 	workers       []*WorkerState
 	formulas      map[string][]*WorkerState // formula_id -> worker index
+	formulaPaths  map[string]string
 	mu            sync.RWMutex
 }
 
@@ -39,11 +40,13 @@ type PoolConfig struct {
 	EventChBuf     int
 }
 
+// note path will actually store in sql so load func is need but for now it fine
 func NewPoolManager(cfg *PoolConfig, inChBuf int) *PoolManager {
 	pm := &PoolManager{
 		inCh:          make(chan domain.ProcessJob, inChBuf),
 		workerEventCh: make(chan *WorkerEvent, cfg.EventChBuf),
 		formulas:      make(map[string][]*WorkerState),
+		formulaPaths:  make(map[string]string),
 		cfg:           cfg,
 	}
 	go pm.managerLoop()
@@ -75,8 +78,7 @@ func (pm *PoolManager) route(job domain.ProcessJob) error {
 
 	if best == nil || best.queueDepth.Load() >= pm.cfg.DepthThreshold {
 		if idle := pm.idleWorker(job.FormulaID); idle != nil {
-			//TODO - pm will store formula path pls fix
-			if err := pm.loadFormula(idle, job.FormulaID, job.FormulaPath); err != nil {
+			if err := pm.loadFormula(idle, job.FormulaID); err != nil {
 				log.Printf("[pool] load onto idle worker failed: %v", err)
 			} else {
 				best = idle
@@ -94,7 +96,7 @@ func (pm *PoolManager) route(job domain.ProcessJob) error {
 				log.Printf("[pool] spawn failed, falling back to depth=%d: %v",
 					best.queueDepth.Load(), err)
 			} else {
-				if err := pm.loadFormula(ws, job.FormulaID, job.FormulaPath); err != nil {
+				if err := pm.loadFormula(ws, job.FormulaID); err != nil {
 					ws.stop()
 					if best == nil {
 						return fmt.Errorf("load on fresh worker failed: %w", err)
@@ -157,7 +159,33 @@ func (pm *PoolManager) spawnWorker() (*WorkerState, error) {
 	return ws, nil
 }
 
-func (pm *PoolManager) loadFormula(ws *WorkerState, formulaID, formulaPath string) error {
+func (pm *PoolManager) RegisterFormula(formulaID, path string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.formulaPaths[formulaID] = path
+}
+
+// DeregisterFormula removes the formula from the pool entirely.
+// Unloads from all workers that have it loaded.
+func (pm *PoolManager) DeregisterFormula(formulaID string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	for _, ws := range pm.formulas[formulaID] {
+		if err := pm.unloadFormula(ws, formulaID); err != nil {
+			log.Printf("[pool] deregister unload failed on worker %d: %v", ws.worker.id, err)
+		}
+	}
+	delete(pm.formulaPaths, formulaID)
+}
+
+func (pm *PoolManager) loadFormula(ws *WorkerState, formulaID string) error {
+
+	formulaPath, ok := pm.formulaPaths[formulaID]
+	if !ok {
+		return fmt.Errorf("FormulaPath not found ")
+	}
+
 	resp, err := ws.worker.Send(map[string]any{
 		"cmd":          "load",
 		"formula_id":   formulaID,
