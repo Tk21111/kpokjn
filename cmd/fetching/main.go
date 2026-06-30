@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"kpokjn/domain"
 	"kpokjn/internal/api"
+	"kpokjn/internal/cache"
 	"kpokjn/internal/config"
 	"kpokjn/internal/data"
 	"kpokjn/internal/logx"
@@ -32,7 +33,18 @@ func main() {
 		Cfg:    config.Load(),
 		Client: &http.Client{},
 	}
-	manager := api.NewApiManager(ctx, writer, cfg.Cfg, 10)
+	marketCache, err := cache.NewMarketCache(writer)
+	if err != nil {
+		panic(err)
+	}
+	onResult := func(data []domain.Bar, job *domain.ApiJob) {
+		marketCache.AddRows(data, job.Ticker)
+		// if time.Since(data[len(data)-1].Timestamp) < time.Hour {
+		// 	//send to eval worker
+		// 	//pm.Send()
+		// }
+	}
+	manager := api.NewApiManager(ctx, writer, cfg.Cfg, onResult, 10)
 	fmt.Println("manager create")
 	producer := manager.NewProducer([]string{"TSLA"})
 	go producer.Run()

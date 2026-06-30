@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"kpokjn/domain"
 	"kpokjn/internal/data"
 	"time"
@@ -13,6 +12,7 @@ type ApiConsumer struct {
 
 	popFunc     func() *domain.ApiJob
 	onPageToken func(*domain.ApiJob, string)
+	onResult    func([]domain.Bar, *domain.ApiJob)
 	PerSecLimit int // per sec
 	PerMinLimit int // per min
 }
@@ -59,8 +59,8 @@ func (Ap *ApiConsumer) Run() {
 
 		job := Ap.popFunc()
 		if job != nil {
-			fmt.Printf("fetching job %v \n", job)
-			go FetchAndWrite(Ap.Client, Ap.Writer, job, Ap.onPageToken)
+			// fmt.Printf("fetching job %v \n", job)
+			go FetchAndWrite(Ap.Client, Ap.Writer, job, Ap.onPageToken, Ap.onResult)
 			perMinCount++
 		}
 	}

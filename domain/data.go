@@ -1,6 +1,8 @@
 package domain
 
-import "time"
+import (
+	"time"
+)
 
 type OHLCV struct {
 	Ticker    string
@@ -15,13 +17,14 @@ type OHLCV struct {
 type Ticker struct {
 	Ticker    string
 	LastFetch time.Time
+	LastSend  time.Time
 }
 
 type ProcessJob struct {
 	JobID     string
 	FormulaID string
 	Ticker    string
-	Data      []OHLCV
+	Data      []Bar
 	Params    map[string]any
 	Feedback  chan<- *JobResult
 }

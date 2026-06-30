@@ -23,6 +23,8 @@ type ApiManager struct {
 	mu    sync.Mutex
 	Queue *pq
 
+	onResult func([]domain.Bar, *domain.ApiJob)
+
 	formulaMu  sync.RWMutex
 	formulaMap map[string]*ApiProducer
 
@@ -55,7 +57,7 @@ func (q *pq) Pop() any {
 	return item
 }
 
-func NewApiManager(ctx context.Context, writer *data.Writer, cfg *config.Config, rate int) *ApiManager {
+func NewApiManager(ctx context.Context, writer *data.Writer, cfg *config.Config, onResult func([]domain.Bar, *domain.ApiJob), rate int) *ApiManager {
 	// Initialize an empty priority queue
 	q := make(pq, 0)
 
@@ -69,6 +71,7 @@ func NewApiManager(ctx context.Context, writer *data.Writer, cfg *config.Config,
 		Writer:      writer,
 		Rate:        rate,
 		dispatchJob: make(chan *domain.ApiJob, 100), // Added a buffer; adjust size to your needs or remove the 100 for unbuffered
+		onResult:    onResult,
 		ctx:         ctx,
 	}
 }

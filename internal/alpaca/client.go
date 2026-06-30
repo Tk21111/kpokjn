@@ -13,19 +13,9 @@ import (
 	"kpokjn/internal/logx"
 )
 
-// Bar represents a single OHLCV bar from Alpaca.
-type Bar struct {
-	Timestamp time.Time `json:"t"`
-	Open      float64   `json:"o"`
-	High      float64   `json:"h"`
-	Low       float64   `json:"l"`
-	Close     float64   `json:"c"`
-	Volume    int64     `json:"v"`
-}
-
 type BarsResponse struct {
-	Bars          []Bar  `json:"bars"`
-	NextPageToken string `json:"next_page_token"`
+	Bars          []domain.Bar `json:"bars"`
+	NextPageToken string       `json:"next_page_token"`
 }
 
 func NewClient(cfg *config.Config) *domain.Client {
@@ -46,8 +36,8 @@ func Do(c *domain.Client, req *http.Request) (*http.Response, error) {
 
 // GetBarsPaged fetches a page of hourly bars ending before `end`.
 // Returns the bars and the next page token (empty if no more pages).
-func GetAllBars(c *domain.Client, apiJob *domain.ApiJob) ([]Bar, string, error) {
-	var allBars []Bar
+func GetAllBars(c *domain.Client, apiJob *domain.ApiJob) ([]domain.Bar, string, error) {
+	var allBars []domain.Bar
 
 	urlStr := fmt.Sprintf("%s/stocks/%s/bars?timeframe=%s&adjustment=all&limit=%d&start=%s",
 		c.Cfg.AlpacaBaseURL, apiJob.Ticker, apiJob.TimeFrame, apiJob.Limit, apiJob.Start.UTC().Format(time.RFC3339))

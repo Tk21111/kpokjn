@@ -69,7 +69,7 @@ func Load() *Config {
 		DiscordErrorWebhook:        os.Getenv("DISCORD_ERROR_WEBHOOK"),
 		DBPath:                     getEnv("DB_PATH", "data/engine.db"),
 		Tickers:                    parseTickers(getEnv("TICKERS", "")),
-		TickerTimeFallback:         time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC),
+		TickerTimeFallback:         time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
 		WorkerCount:                getIntEnv("PY_WORKER_COUNT", 4),
 		EvalTimeoutSec:             getIntEnv("EVAL_TIMEOUT_SEC", 30),
 		SignalCooldownHours:        getIntEnv("SIGNAL_COOLDOWN_HOURS", 4),
