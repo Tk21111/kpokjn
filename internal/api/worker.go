@@ -30,7 +30,7 @@ func FetchAndWrite(client *domain.Client, writer *data.Writer, cfg *domain.ApiJo
 					close=excluded.close, 
 					volume=excluded.volume
 				`,
-				cfg.Ticker, bar.Timestamp, bar.Open, bar.High, bar.Low, bar.Close, bar.Volume,
+				cfg.Ticker, bar.Timestamp.Unix(), bar.Open, bar.High, bar.Low, bar.Close, bar.Volume,
 			)
 		}
 	}

@@ -2,7 +2,9 @@ package api
 
 import (
 	"database/sql"
+	"fmt"
 	"kpokjn/domain"
+	"kpokjn/internal/config"
 	"kpokjn/internal/data"
 	"kpokjn/internal/logx"
 	"sync"
@@ -21,19 +23,24 @@ type ApiProducer struct {
 	FeedbackCh  chan *domain.ApiResult
 }
 
-func GetLastFetch(w *data.Writer, ticker string, fallbackDays int) time.Time {
+func GetLastFetch(w *data.Writer, ctf *config.Config, ticker string) time.Time {
 	var maxTimestamp sql.NullInt64
 
 	err := w.QueryRow("SELECT MAX(timestamp) FROM ohlcv WHERE ticker = ?", ticker).Scan(&maxTimestamp)
 	if err != nil && err != sql.ErrNoRows {
 		logx.Errorf("failed to fetch max timestamp for %s: %v", ticker, err)
+		return ctf.TickerTimeFallback
 	}
 
+	fmt.Println("Time= ===")
 	if maxTimestamp.Valid {
+		fmt.Println("f")
+		fmt.Println(time.Unix(maxTimestamp.Int64, 0))
 		return time.Unix(maxTimestamp.Int64, 0)
 	}
 
-	return time.Now().AddDate(0, 0, -fallbackDays)
+	fmt.Println(ctf.TickerTimeFallback)
+	return ctf.TickerTimeFallback
 }
 
 // tmp
@@ -41,13 +48,16 @@ func (APM *ApiManager) NewProducer(tickers []string) *ApiProducer {
 
 	//check dup
 	//get tickre and lastFetch from sql
+	var tickerFormatted = map[string]*domain.Ticker{}
+
+	for _, v := range tickers {
+		tickerFormatted[v] = &domain.Ticker{
+			Ticker:    v,
+			LastFetch: GetLastFetch(APM.Writer, APM.Cfg, v),
+		}
+	}
 	producer := &ApiProducer{
-		Tickers: map[string]*domain.Ticker{
-			"TSLA": {
-				Ticker:    "TSLA",
-				LastFetch: time.Now().Add(-time.Minute * 60 * 24 * 300),
-			},
-		},
+		Tickers:     tickerFormatted,
 		MaxDuration: 60 * 5,
 		SubmitFunc: func(job *domain.ApiJob) {
 			APM.Submit(job, 5)
@@ -71,17 +81,18 @@ func (Ap *ApiProducer) Run() {
 				defer Ap.mu.Unlock()
 
 				for _, v := range Ap.Tickers {
-					if time.Since(v.LastFetch) > time.Duration(Ap.MaxDuration)*time.Second {
+					end := time.Now().Add(-time.Minute * 60)
+					if time.Since(v.LastFetch) > time.Duration(Ap.MaxDuration)*time.Second && Ap.Tickers[v.Ticker].LastFetch.Unix() < end.Unix() {
 						go Ap.SubmitFunc(
 							&domain.ApiJob{
 								ID:        uuid.New().String(),
 								Start:     v.LastFetch,
-								End:       time.Now().Add(-time.Minute * 60),
+								End:       end,
 								Ticker:    v.Ticker,
 								TimeFrame: "15min",
 								Priority:  1,
 								Feedback:  Ap.FeedbackCh,
-								Limit:     200,
+								Limit:     10000, //max limit who tf do this shit
 							},
 						)
 					}
@@ -89,7 +100,7 @@ func (Ap *ApiProducer) Run() {
 			}()
 		case result := <-Ap.FeedbackCh:
 			Ap.mu.Lock()
-			Ap.Tickers[result.ID].LastFetch = time.Now()
+			Ap.Tickers[result.Status.Ticker].LastFetch = time.Now()
 
 			Ap.mu.Unlock()
 		}

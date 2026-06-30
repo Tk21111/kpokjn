@@ -24,23 +24,19 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	manager := api.NewApiManager(ctx, writer, 10)
-	fmt.Println("manager create")
-	producer := manager.NewProducer([]string{"TSLA"})
-	go producer.Run()
-	fmt.Println("producer run")
 	// producer1 := manager.NewProducer([]s)
 	// go producer1.Run()
 	// fmt.Println("producer1 run")
 
 	cfg := &domain.Client{
-		Cfg: &config.Config{
-			AlpacaAPIKey:  os.Getenv("ALPACA_API_KEY"),
-			AlpacaSecret:  os.Getenv("ALPACA_SECRET_KEY"),
-			AlpacaBaseURL: "https://data.alpaca.markets/v2",
-		},
+		Cfg:    config.Load(),
 		Client: &http.Client{},
 	}
+	manager := api.NewApiManager(ctx, writer, cfg.Cfg, 10)
+	fmt.Println("manager create")
+	producer := manager.NewProducer([]string{"TSLA"})
+	go producer.Run()
+	fmt.Println("producer run")
 	consumeer := manager.NewConsumer(cfg, 10, 200)
 	consumeer.Run()
 	fmt.Println("consummer run")

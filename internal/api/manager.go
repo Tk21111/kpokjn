@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"kpokjn/domain"
+	"kpokjn/internal/config"
 	"kpokjn/internal/data"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ type ApiQueue struct {
 }
 
 type ApiManager struct {
+	Cfg   *config.Config
 	mu    sync.Mutex
 	Queue *pq
 
@@ -53,7 +55,7 @@ func (q *pq) Pop() any {
 	return item
 }
 
-func NewApiManager(ctx context.Context, writer *data.Writer, rate int) *ApiManager {
+func NewApiManager(ctx context.Context, writer *data.Writer, cfg *config.Config, rate int) *ApiManager {
 	// Initialize an empty priority queue
 	q := make(pq, 0)
 
@@ -62,6 +64,7 @@ func NewApiManager(ctx context.Context, writer *data.Writer, rate int) *ApiManag
 	heap.Init(&q)
 
 	return &ApiManager{
+		Cfg:         cfg,
 		Queue:       &q,
 		Writer:      writer,
 		Rate:        rate,

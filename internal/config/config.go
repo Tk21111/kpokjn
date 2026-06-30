@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
+
+	"kpokjn/internal/logx"
 
 	"github.com/joho/godotenv"
-	"kpokjn/internal/logx"
 )
 
 // TickerOverride holds per-ticker configuration overrides.
@@ -33,8 +35,9 @@ type Config struct {
 	DBPath string
 
 	// Tickers
-	Tickers        []string
-	TickerOverrides map[string]TickerOverride
+	Tickers            []string
+	TickerOverrides    map[string]TickerOverride
+	TickerTimeFallback time.Time
 
 	// Workers
 	WorkerCount    int
@@ -59,13 +62,14 @@ func Load() *Config {
 	}
 
 	return &Config{
-		AlpacaAPIKey:                os.Getenv("ALPACA_API_KEY"),
-		AlpacaSecret:                os.Getenv("ALPACA_SECRET_KEY"),
-		AlpacaBaseURL:               getEnv("ALPACA_BASE_URL", "https://data.alpaca.markets/v2"),
-		DiscordSignalWebhook:        os.Getenv("DISCORD_SIGNAL_WEBHOOK"),
-		DiscordErrorWebhook:         os.Getenv("DISCORD_ERROR_WEBHOOK"),
+		AlpacaAPIKey:               os.Getenv("ALPACA_API_KEY"),
+		AlpacaSecret:               os.Getenv("ALPACA_SECRET_KEY"),
+		AlpacaBaseURL:              getEnv("ALPACA_BASE_URL", "https://data.alpaca.markets/v2"),
+		DiscordSignalWebhook:       os.Getenv("DISCORD_SIGNAL_WEBHOOK"),
+		DiscordErrorWebhook:        os.Getenv("DISCORD_ERROR_WEBHOOK"),
 		DBPath:                     getEnv("DB_PATH", "data/engine.db"),
 		Tickers:                    parseTickers(getEnv("TICKERS", "")),
+		TickerTimeFallback:         time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC),
 		WorkerCount:                getIntEnv("PY_WORKER_COUNT", 4),
 		EvalTimeoutSec:             getIntEnv("EVAL_TIMEOUT_SEC", 30),
 		SignalCooldownHours:        getIntEnv("SIGNAL_COOLDOWN_HOURS", 4),
