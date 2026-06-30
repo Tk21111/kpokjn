@@ -26,12 +26,12 @@ func main() {
 	}
 	manager := api.NewApiManager(ctx, writer, 10)
 	fmt.Println("manager create")
-	producer := manager.NewProducer()
+	producer := manager.NewProducer([]string{"TSLA"})
 	go producer.Run()
 	fmt.Println("producer run")
-	producer1 := manager.NewProducer()
-	go producer1.Run()
-	fmt.Println("producer1 run")
+	// producer1 := manager.NewProducer([]s)
+	// go producer1.Run()
+	// fmt.Println("producer1 run")
 
 	cfg := &domain.Client{
 		Cfg: &config.Config{

@@ -21,6 +21,9 @@ type ApiManager struct {
 	mu    sync.Mutex
 	Queue *pq
 
+	formulaMu  sync.RWMutex
+	formulaMap map[string]*ApiProducer
+
 	Writer      *data.Writer
 	Rate        int
 	dispatchJob chan *domain.ApiJob
@@ -112,4 +115,35 @@ func (AMP *ApiManager) age() {
 			heap.Fix(AMP.Queue, i) // O(log n), not a full rebuild
 		}
 	}
+}
+
+func (m *ApiManager) GetProducer(id string) (*ApiProducer, bool) {
+	m.formulaMu.RLock()
+	defer m.formulaMu.RUnlock()
+
+	p, exists := m.formulaMap[id]
+	return p, exists
+}
+
+func (m *ApiManager) AddProducer(id string, p *ApiProducer) (bool, error) {
+	m.formulaMu.Lock()
+	defer m.formulaMu.Unlock()
+
+	if m.formulaMap == nil {
+		m.formulaMap = make(map[string]*ApiProducer)
+	}
+
+	if _, exists := m.formulaMap[id]; exists {
+		return false, nil
+	}
+
+	m.formulaMap[id] = p
+	return true, nil
+}
+
+func (m *ApiManager) RemoveProducer(id string) {
+	m.formulaMu.Lock()
+	defer m.formulaMu.Unlock()
+
+	delete(m.formulaMap, id)
 }

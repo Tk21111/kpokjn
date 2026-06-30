@@ -1,10 +1,14 @@
 package api
 
 import (
-	"fmt"
+	"database/sql"
 	"kpokjn/domain"
+	"kpokjn/internal/data"
+	"kpokjn/internal/logx"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // stupid producer
@@ -17,9 +21,27 @@ type ApiProducer struct {
 	FeedbackCh  chan *domain.ApiResult
 }
 
+func GetLastFetch(w *data.Writer, ticker string, fallbackDays int) time.Time {
+	var maxTimestamp sql.NullInt64
+
+	err := w.QueryRow("SELECT MAX(timestamp) FROM ohlcv WHERE ticker = ?", ticker).Scan(&maxTimestamp)
+	if err != nil && err != sql.ErrNoRows {
+		logx.Errorf("failed to fetch max timestamp for %s: %v", ticker, err)
+	}
+
+	if maxTimestamp.Valid {
+		return time.Unix(maxTimestamp.Int64, 0)
+	}
+
+	return time.Now().AddDate(0, 0, -fallbackDays)
+}
+
 // tmp
-func (APM *ApiManager) NewProducer() *ApiProducer {
-	return &ApiProducer{
+func (APM *ApiManager) NewProducer(tickers []string) *ApiProducer {
+
+	//check dup
+	//get tickre and lastFetch from sql
+	producer := &ApiProducer{
 		Tickers: map[string]*domain.Ticker{
 			"TSLA": {
 				Ticker:    "TSLA",
@@ -32,11 +54,15 @@ func (APM *ApiManager) NewProducer() *ApiProducer {
 		},
 		FeedbackCh: make(chan *domain.ApiResult),
 	}
+
+	return producer
 }
 
 func (Ap *ApiProducer) Run() {
 
 	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ticker.C:
@@ -44,12 +70,11 @@ func (Ap *ApiProducer) Run() {
 				Ap.mu.Lock()
 				defer Ap.mu.Unlock()
 
-				fmt.Println("Checking stock")
 				for _, v := range Ap.Tickers {
 					if time.Since(v.LastFetch) > time.Duration(Ap.MaxDuration)*time.Second {
 						go Ap.SubmitFunc(
 							&domain.ApiJob{
-								ID:        v.Ticker,
+								ID:        uuid.New().String(),
 								Start:     v.LastFetch,
 								End:       time.Now().Add(-time.Minute * 60),
 								Ticker:    v.Ticker,
