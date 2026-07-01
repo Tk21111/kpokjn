@@ -3,6 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"kpokjn/domain"
+	"kpokjn/internal/data"
 	"kpokjn/internal/logx"
 	"log"
 	"sync"
@@ -25,6 +26,7 @@ type PoolManager struct {
 	cfg           *PoolConfig
 	workerEventCh chan *WorkerEvent
 	inCh          chan domain.ProcessJob
+	outCh         chan *domain.Request
 	workers       []*WorkerState
 	formulas      map[string][]*WorkerState // formula_id -> worker index
 	formulaPaths  map[string]string
@@ -40,6 +42,11 @@ type PoolConfig struct {
 	EventChBuf     int
 }
 
+type UpdateData struct {
+	Id   string
+	Path string
+}
+
 // note path will actually store in sql so load func is need but for now it fine
 func NewPoolManager(cfg *PoolConfig, inChBuf int) *PoolManager {
 	pm := &PoolManager{
@@ -51,6 +58,25 @@ func NewPoolManager(cfg *PoolConfig, inChBuf int) *PoolManager {
 	}
 	go pm.managerLoop()
 	return pm
+}
+
+// Load queries the database for all formulas and registers them in the PoolManager
+func (pm *PoolManager) Load(writer *data.Writer) error {
+	rows, err := writer.Query(`SELECT id, path FROM formulas`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, path string
+		if err := rows.Scan(&id, &path); err != nil {
+			return err
+		}
+
+		pm.RegisterFormula(id, path)
+	}
+	return rows.Err()
 }
 
 func (pm *PoolManager) Submit(job domain.ProcessJob) {
@@ -66,6 +92,12 @@ func (pm *PoolManager) managerLoop() {
 			}
 		case event := <-pm.workerEventCh:
 			pm.handleWorkerEvent(event)
+		case req := <-pm.outCh:
+			if req.ReqType == "Update" {
+				if data, ok := req.Data.(UpdateData); ok {
+					pm.RegisterFormula(data.Id, data.Path)
+				}
+			}
 		}
 	}
 }

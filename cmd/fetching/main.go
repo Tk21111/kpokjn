@@ -43,6 +43,8 @@ func main() {
 		// 	//send to eval worker
 		// 	//pm.Send()
 		// }
+
+		//idk bro
 	}
 	manager := api.NewApiManager(ctx, writer, cfg.Cfg, onResult, 10)
 	fmt.Println("manager create")

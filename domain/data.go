@@ -35,3 +35,8 @@ type JobResult struct {
 	Signal int
 	Err    error
 }
+
+type Request struct {
+	ReqType string
+	Data    any
+}
